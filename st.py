@@ -308,6 +308,16 @@ def confirm_setup_intent(setup_intent_id, client_secret, payment_method_id,
             elif status == "requires_action":
                 print("[ST] 3DS required — card live but needs action")
                 _add_card_nonce = None
+                card_info = payment_method_data.get("card", {})
+                if card_info and "payment_method" not in payload:
+                    payload["payment_method"] = {
+                        "card": {
+                            "brand":         card_info.get("brand", ""),
+                            "display_brand": card_info.get("brand", ""),
+                            "country":       card_info.get("country", ""),
+                            "funding":       card_info.get("funding", ""),
+                        }
+                    }
                 return False, payload
 
             elif status == "error":
@@ -316,6 +326,19 @@ def confirm_setup_intent(setup_intent_id, client_secret, payment_method_id,
                 code    = err.get("code", "")
                 decline = err.get("decline_code", "")
                 print(f"[ST] ❌ Declined — code={code} decline={decline} msg={msg}")
+
+                # Inject card info from source data into error so bott.py
+                # can display Brand/Country/Type instead of Unknown
+                card_info = payment_method_data.get("card", {})
+                if card_info and "payment_method" not in payload.get("error", {}):
+                    payload.setdefault("error", {})["payment_method"] = {
+                        "card": {
+                            "brand":        card_info.get("brand", ""),
+                            "display_brand": card_info.get("brand", ""),
+                            "country":      card_info.get("country", ""),
+                            "funding":      card_info.get("funding", ""),
+                        }
+                    }
                 return False, payload
 
             else:
@@ -329,7 +352,18 @@ def confirm_setup_intent(setup_intent_id, client_secret, payment_method_id,
             except Exception:
                 msg = "400 with unparseable body"
             print(f"[ST] ❌ 400 Declined: {msg}")
-            return False, {"error": {"message": msg, "code": "card_declined"}}
+            card_info = payment_method_data.get("card", {})
+            error_resp = {"error": {"message": msg, "code": "card_declined"}}
+            if card_info:
+                error_resp["error"]["payment_method"] = {
+                    "card": {
+                        "brand":         card_info.get("brand", ""),
+                        "display_brand": card_info.get("brand", ""),
+                        "country":       card_info.get("country", ""),
+                        "funding":       card_info.get("funding", ""),
+                    }
+                }
+            return False, error_resp
 
         else:
             print(f"[ST] Unexpected HTTP {r.status_code}")
