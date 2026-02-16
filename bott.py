@@ -5143,12 +5143,23 @@ async def cmd_sc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 decline_code = error_info.get('decline_code', 'N/A')
                 message = error_info.get('message', 'No message')
 
-                # Extract card info — check error.payment_method first,
-                # then error.last_payment_error.payment_method as fallback
-                pm_from_error = error_info.get('payment_method') or {}
-                if not pm_from_error:
-                    pm_from_error = error_info.get('last_payment_error', {}).get('payment_method') or {}
-                card_info_dec = pm_from_error.get('card', {}) if isinstance(pm_from_error, dict) else {}
+                # Card info extraction — try every location Stripe puts it:
+                # 1. error.payment_method.card  (normal decline)
+                # 2. error.last_payment_error.payment_method.card  (alt decline path)
+                # 3. response_data.payment_method.card  (requires_action / 3DS path)
+                # 4. response_data.last_payment_error.payment_method.card  (fallback)
+                def _get_card_info(rd, ei):
+                    for pm in [
+                        ei.get('payment_method'),
+                        ei.get('last_payment_error', {}).get('payment_method'),
+                        rd.get('payment_method'),
+                        rd.get('last_payment_error', {}).get('payment_method'),
+                    ]:
+                        if isinstance(pm, dict) and pm.get('card'):
+                            return pm['card']
+                    return {}
+
+                card_info_dec = _get_card_info(response_data, error_info)
                 dec_brand   = (card_info_dec.get('display_brand') or card_info_dec.get('brand', 'Unknown')).title()
                 dec_country = card_info_dec.get('country', 'Unknown')
                 dec_funding = card_info_dec.get('funding', 'Unknown')
