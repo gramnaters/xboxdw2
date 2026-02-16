@@ -56,9 +56,14 @@ def get_firebase_token_and_uid(api_key, proxy=None):
 def get_checkout_info(bearer_token, uid, proxy=None):
     url = 'https://us-central1-pangobooks.cloudfunctions.net/checkout-getCheckoutV2'
     headers = {
-        'accept': '*/*', 'accept-language': 'en-GB,en;q=0.9', 'authorization': f'Bearer {bearer_token}',
-        'content-type': 'application/json', 'origin': 'https://pangobooks.com',
-        'referer': 'https://pangobooks.com/', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'accept':          '*/*',
+        'accept-language': 'en-US,en;q=0.9',
+        'authorization':   f'Bearer {bearer_token}',
+        'content-type':    'application/json',
+        'origin':          'https://pangobooks.com',
+        'referer':         'https://pangobooks.com/',
+        'user-agent':      'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+                           '(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
     }
     payload = {
         "data": {"web": True, "type": "full", "bucksBreakdown": {"bucksBack": False, "earned": False, "promo": False},
@@ -84,9 +89,21 @@ def get_checkout_info(bearer_token, uid, proxy=None):
 def confirm_stripe_payment(payment_intent_id, client_secret, card_number, card_exp_month, card_exp_year, card_cvc, proxy=None):
     url = f'https://api.stripe.com/v1/payment_intents/{payment_intent_id}/confirm'
     headers = {
-        'accept': 'application/json', 'content-type': 'application/x-www-form-urlencoded',
-        'origin': 'https://js.stripe.com', 'referer': 'https://js.stripe.com/',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'accept':             'application/json',
+        'accept-language':    'en-US,en;q=0.9',
+        'cache-control':      'no-cache',
+        'content-type':       'application/x-www-form-urlencoded',
+        'origin':             'https://js.stripe.com',
+        'pragma':             'no-cache',
+        'referer':            'https://js.stripe.com/',
+        'sec-ch-ua':          '"Chromium";v="137", "Not/A)Brand";v="24"',
+        'sec-ch-ua-mobile':   '?1',
+        'sec-ch-ua-platform': '"Android"',
+        'sec-fetch-dest':     'empty',
+        'sec-fetch-mode':     'cors',
+        'sec-fetch-site':     'same-site',
+        'user-agent':         'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+                              '(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
     }
     payload = {
         'return_url': 'https://pangobooks.com/order/payment/t',
@@ -102,9 +119,13 @@ def confirm_stripe_payment(payment_intent_id, client_secret, card_number, card_e
         'payment_method_data[billing_details][address][country]': BILLING_COUNTRY,
         'payment_method_data[billing_details][address][postal_code]': BILLING_POSTAL_CODE,
         'payment_method_data[billing_details][address][state]': BILLING_STATE,
+        'payment_method_data[guid]':  str(uuid.uuid4()).replace('-', '') + str(random.randint(1000, 9999)),
+        'payment_method_data[muid]':  str(uuid.uuid4()).replace('-', '') + str(random.randint(1000, 9999)),
+        'payment_method_data[sid]':   str(uuid.uuid4()).replace('-', '') + str(random.randint(1000, 9999)),
         'payment_method_data[client_attribution_metadata][client_session_id]': str(uuid.uuid4()),
-        'payment_method_data[payment_user_agent]': 'stripe.js/234f261dc5; stripe-js-v3/234f261dc5; payment-element',
-        'payment_method_data[referrer]': 'https://pangobooks.com', 'payment_method_data[time_on_page]': str(random.randint(30000, 900000)),
+        'payment_method_data[payment_user_agent]': 'stripe.js/8702d4c73a; stripe-js-v3/8702d4c73a; payment-element',
+        'payment_method_data[referrer]': 'https://pangobooks.com',
+        'payment_method_data[time_on_page]': str(random.randint(30000, 900000)),
         'expected_payment_method_type': 'card', 'use_stripe_sdk': 'true', 'key': STRIPE_KEY, 'client_secret': client_secret
     }
     
