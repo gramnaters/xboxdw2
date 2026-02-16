@@ -5142,7 +5142,17 @@ async def cmd_sc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 error_code = error_info.get('code', 'Unknown')
                 decline_code = error_info.get('decline_code', 'N/A')
                 message = error_info.get('message', 'No message')
-                
+
+                # Extract card info — check error.payment_method first,
+                # then error.last_payment_error.payment_method as fallback
+                pm_from_error = error_info.get('payment_method') or {}
+                if not pm_from_error:
+                    pm_from_error = error_info.get('last_payment_error', {}).get('payment_method') or {}
+                card_info_dec = pm_from_error.get('card', {}) if isinstance(pm_from_error, dict) else {}
+                dec_brand   = (card_info_dec.get('display_brand') or card_info_dec.get('brand', 'Unknown')).title()
+                dec_country = card_info_dec.get('country', 'Unknown')
+                dec_funding = card_info_dec.get('funding', 'Unknown')
+
                 payment_intent_data = error_info.get("payment_intent", {})
                 if payment_intent_data:
                     amount = payment_intent_data.get("amount", 0)
@@ -5154,6 +5164,7 @@ async def cmd_sc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 formatted_amount = t2.format_amount(amount, currency)
                 
                 logger.info(f"Error Code: {error_code}, Decline Code: {decline_code}, Message: {message}")
+                logger.info(f"Brand: {dec_brand}, Country: {dec_country}, Type: {dec_funding}")
                 logger.info(f"Amount: {formatted_amount}")
                 
                 response_text = (
@@ -5165,6 +5176,9 @@ async def cmd_sc(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"<b>Error Code:</b> {error_code}\n"
                     f"<b>Decline Code:</b> {decline_code}\n"
                     f"<b>Message:</b> {message}\n"
+                    f"<b>Brand:</b> {dec_brand}\n"
+                    f"<b>Country:</b> {dec_country}\n"
+                    f"<b>Type:</b> {dec_funding}\n"
                     f"<b>Amount:</b> {formatted_amount}\n"
                     f"<b>User:</b> {username_display}\n"
                     f"<b>Gateway:</b> Stripe Payment Intent"
