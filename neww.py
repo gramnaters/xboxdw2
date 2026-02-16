@@ -1746,46 +1746,109 @@ def print_cc_summary(card: dict, code_display: str, amount_display: str):
 
 SUMMARY_ONLY = True
 
-# ── BIN lookup (HandyAPI) ─────────────────────────────────────────────────────
-_BIN_API_KEY   = "PUB-0YUhgby624kG8NuK1nDzvQtCmL"
-_bin_cache: dict = {}
-_COUNTRY_FLAGS = {
-    "US":"🇺🇸","GB":"🇬🇧","MX":"🇲🇽","CA":"🇨🇦","AU":"🇦🇺","DE":"🇩🇪","FR":"🇫🇷",
-    "ES":"🇪🇸","IT":"🇮🇹","BR":"🇧🇷","AR":"🇦🇷","CO":"🇨🇴","CL":"🇨🇱","PE":"🇵🇪",
-    "NL":"🇳🇱","BE":"🇧🇪","CH":"🇨🇭","SE":"🇸🇪","NO":"🇳🇴","DK":"🇩🇰","PL":"🇵🇱",
-    "RU":"🇷🇺","UA":"🇺🇦","TR":"🇹🇷","IN":"🇮🇳","CN":"🇨🇳","JP":"🇯🇵","KR":"🇰🇷",
-    "SG":"🇸🇬","HK":"🇭🇰","MY":"🇲🇾","TH":"🇹🇭","ID":"🇮🇩","PH":"🇵🇭","VN":"🇻🇳",
-    "ZA":"🇿🇦","NG":"🇳🇬","EG":"🇪🇬","MA":"🇲🇦","KE":"🇰🇪","PT":"🇵🇹","GR":"🇬🇷",
-    "CZ":"🇨🇿","HU":"🇭🇺","RO":"🇷🇴","NZ":"🇳🇿","IL":"🇮🇱","SA":"🇸🇦","AE":"🇦🇪","PK":"🇵🇰",
+# ─── BIN Lookup ──────────────────────────────────────────────────────
+HANDYAPI_KEY = "PUB-0YUhgby624kG8NuK1nDzvQtCmL"
+_bin_cache = {}
+COUNTRY_FLAGS = {
+    "AD":"🇦🇩","AE":"🇦🇪","AF":"🇦🇫","AG":"🇦🇬","AI":"🇦🇮","AL":"🇦🇱","AM":"🇦🇲","AO":"🇦🇴",
+    "AR":"🇦🇷","AS":"🇦🇸","AT":"🇦🇹","AU":"🇦🇺","AW":"🇦🇼","AZ":"🇦🇿","BA":"🇧🇦","BB":"🇧🇧",
+    "BD":"🇧🇩","BE":"🇧🇪","BF":"🇧🇫","BG":"🇧🇬","BH":"🇧🇭","BI":"🇧🇮","BJ":"🇧🇯","BM":"🇧🇲",
+    "BN":"🇧🇳","BO":"🇧🇴","BR":"🇧🇷","BS":"🇧🇸","BT":"🇧🇹","BW":"🇧🇼","BY":"🇧🇾","BZ":"🇧🇿",
+    "CA":"🇨🇦","CD":"🇨🇩","CF":"🇨🇫","CG":"🇨🇬","CH":"🇨🇭","CI":"🇨🇮","CL":"🇨🇱","CM":"🇨🇲",
+    "CN":"🇨🇳","CO":"🇨🇴","CR":"🇨🇷","CU":"🇨🇺","CV":"🇨🇻","CY":"🇨🇾","CZ":"🇨🇿","DE":"🇩🇪",
+    "DJ":"🇩🇯","DK":"🇩🇰","DM":"🇩🇲","DO":"🇩🇴","DZ":"🇩🇿","EC":"🇪🇨","EE":"🇪🇪","EG":"🇪🇬",
+    "ER":"🇪🇷","ES":"🇪🇸","ET":"🇪🇹","FI":"🇫🇮","FJ":"🇫🇯","FK":"🇫🇰","FM":"🇫🇲","FO":"🇫🇴",
+    "FR":"🇫🇷","GA":"🇬🇦","GB":"🇬🇧","GD":"🇬🇩","GE":"🇬🇪","GF":"🇬🇫","GH":"🇬🇭","GI":"🇬🇮",
+    "GL":"🇬🇱","GM":"🇬🇲","GN":"🇬🇳","GP":"🇬🇵","GQ":"🇬🇶","GR":"🇬🇷","GT":"🇬🇹","GU":"🇬🇺",
+    "GW":"🇬🇼","GY":"🇬🇾","HK":"🇭🇰","HN":"🇭🇳","HR":"🇭🇷","HT":"🇭🇹","HU":"🇭🇺","ID":"🇮🇩",
+    "IE":"🇮🇪","IL":"🇮🇱","IN":"🇮🇳","IQ":"🇮🇶","IR":"🇮🇷","IS":"🇮🇸","IT":"🇮🇹","JM":"🇯🇲",
+    "JO":"🇯🇴","JP":"🇯🇵","KE":"🇰🇪","KG":"🇰🇬","KH":"🇰🇭","KI":"🇰🇮","KM":"🇰🇲","KN":"🇰🇳",
+    "KP":"🇰🇵","KR":"🇰🇷","KW":"🇰🇼","KY":"🇰🇾","KZ":"🇰🇿","LA":"🇱🇦","LB":"🇱🇧","LC":"🇱🇨",
+    "LI":"🇱🇮","LK":"🇱🇰","LR":"🇱🇷","LS":"🇱🇸","LT":"🇱🇹","LU":"🇱🇺","LV":"🇱🇻","LY":"🇱🇾",
+    "MA":"🇲🇦","MC":"🇲🇨","MD":"🇲🇩","ME":"🇲🇪","MG":"🇲🇬","MH":"🇲🇭","MK":"🇲🇰","ML":"🇲🇱",
+    "MM":"🇲🇲","MN":"🇲🇳","MO":"🇲🇴","MP":"🇲🇵","MQ":"🇲🇶","MR":"🇲🇷","MS":"🇲🇸","MT":"🇲🇹",
+    "MU":"🇲🇺","MV":"🇲🇻","MW":"🇲🇼","MX":"🇲🇽","MY":"🇲🇾","MZ":"🇲🇿","NA":"🇳🇦","NC":"🇳🇨",
+    "NE":"🇳🇪","NF":"🇳🇫","NG":"🇳🇬","NI":"🇳🇮","NL":"🇳🇱","NO":"🇳🇴","NP":"🇳🇵","NR":"🇳🇷",
+    "NU":"🇳🇺","NZ":"🇳🇿","OM":"🇴🇲","PA":"🇵🇦","PE":"🇵🇪","PF":"🇵🇫","PG":"🇵🇬","PH":"🇵🇭",
+    "PK":"🇵🇰","PL":"🇵🇱","PM":"🇵🇲","PN":"🇵🇳","PR":"🇵🇷","PS":"🇵🇸","PT":"🇵🇹","PW":"🇵🇼",
+    "PY":"🇵🇾","QA":"🇶🇦","RE":"🇷🇪","RO":"🇷🇴","RS":"🇷🇸","RU":"🇷🇺","RW":"🇷🇼","SA":"🇸🇦",
+    "SB":"🇸🇧","SC":"🇸🇨","SD":"🇸🇩","SE":"🇸🇪","SG":"🇸🇬","SH":"🇸🇭","SI":"🇸🇮","SK":"🇸🇰",
+    "SL":"🇸🇱","SM":"🇸🇲","SN":"🇸🇳","SO":"🇸🇴","SR":"🇸🇷","SS":"🇸🇸","ST":"🇸🇹","SV":"🇸🇻",
+    "SX":"🇸🇽","SY":"🇸🇾","SZ":"🇸🇿","TC":"🇹🇨","TD":"🇹🇩","TG":"🇹🇬","TH":"🇹🇭","TJ":"🇹🇯",
+    "TK":"🇹🇰","TL":"🇹🇱","TM":"🇹🇲","TN":"🇹🇳","TO":"🇹🇴","TR":"🇹🇷","TT":"🇹🇹","TV":"🇹🇻",
+    "TW":"🇹🇼","TZ":"🇹🇿","UA":"🇺🇦","UG":"🇺🇬","US":"🇺🇸","UY":"🇺🇾","UZ":"🇺🇿","VA":"🇻🇦",
+    "VC":"🇻🇨","VE":"🇻🇪","VG":"🇻🇬","VI":"🇻🇮","VN":"🇻🇳","VU":"🇻🇺","WF":"🇼🇫","WS":"🇼🇸",
+    "XK":"🇽🇰","YE":"🇾🇪","YT":"🇾🇹","ZA":"🇿🇦","ZM":"🇿🇲","ZW":"🇿🇼",
 }
 
-def _lookup_bin(pan: str) -> dict:
+def lookup_bin(card_number: str) -> dict:
     try:
-        b = re.sub(r"\D", "", pan or "")[:6]
-        if len(b) < 6:
+        bin6 = re.sub(r"\D", "", str(card_number or ""))[:6]
+        if len(bin6) < 6:
             return {}
-        if b in _bin_cache:
-            return _bin_cache[b]
-        r = requests.get(f"https://data.handyapi.com/bin/{b}", headers={"x-api-key": _BIN_API_KEY}, timeout=5)
-        if r.status_code != 200:
-            _bin_cache[b] = {}
-            return {}
-        d = r.json()
-        cc = (d.get("Country") or {}).get("A2", "")
-        result = {
-            "bin":     b,
-            "scheme":  (d.get("Scheme") or "").upper(),
-            "type":    (d.get("Type") or "").upper(),
-            "tier":    (d.get("CardTier") or "").upper(),
-            "bank":    (d.get("Issuer") or "").upper(),
-            "country": (d.get("Country") or {}).get("Name", "").upper(),
-            "flag":    _COUNTRY_FLAGS.get(cc.upper(), "🌐"),
-        }
-        _bin_cache[b] = result
-        return result
+        if bin6 in _bin_cache:
+            return _bin_cache[bin6]
+        # Try HandyAPI
+        try:
+            r = requests.get(f"https://data.handyapi.com/bin/{bin6}", headers={"x-api-key": HANDYAPI_KEY}, timeout=5, verify=False)
+            if r.status_code == 200:
+                d = r.json()
+                if d.get("Status") == "SUCCESS" or d.get("Scheme"):
+                    result = {
+                        "bin": bin6,
+                        "brand": (d.get("Scheme") or "").upper(),
+                        "type": (d.get("Type") or "").upper(),
+                        "level": (d.get("CardTier") or "").upper(),
+                        "bank": (d.get("Issuer") or "").strip(),
+                        "country": (d.get("Country", {}).get("Name") or "").upper() if isinstance(d.get("Country"), dict) else (d.get("Country") or "").upper(),
+                        "country_code": (d.get("Country", {}).get("A2") or "").upper() if isinstance(d.get("Country"), dict) else "",
+                    }
+                    _bin_cache[bin6] = result
+                    return result
+        except Exception:
+            pass
+        # Fallback: binlist.net
+        try:
+            r2 = requests.get(f"https://lookup.binlist.net/{bin6}", headers={"Accept-Version": "3"}, timeout=5, verify=False)
+            if r2.status_code == 200:
+                d2 = r2.json()
+                result = {
+                    "bin": bin6,
+                    "brand": (d2.get("scheme") or "").upper(),
+                    "type": (d2.get("type") or "").upper(),
+                    "level": (d2.get("brand") or "").upper(),
+                    "bank": (d2.get("bank", {}).get("name") or "").strip() if isinstance(d2.get("bank"), dict) else "",
+                    "country": (d2.get("country", {}).get("name") or "").upper() if isinstance(d2.get("country"), dict) else "",
+                    "country_code": (d2.get("country", {}).get("alpha2") or "").upper() if isinstance(d2.get("country"), dict) else "",
+                }
+                _bin_cache[bin6] = result
+                return result
+        except Exception:
+            pass
+        _bin_cache[bin6] = {}
+        return {}
     except Exception:
         return {}
-# ─────────────────────────────────────────────────────────────────────────────
+
+def get_bin_line(card_number: str) -> str:
+    b = lookup_bin(card_number)
+    if not b:
+        return "", ""
+    parts = [b.get("bin", "")]
+    if b.get("brand"):
+        parts.append(f"[{b['brand']}]")
+    if b.get("type"):
+        parts.append(b["type"])
+    if b.get("level"):
+        parts.append(f"({b['level']})")
+    if b.get("bank"):
+        parts.append(f"- {b['bank']}")
+    bin_str = f"\U0001f3ab BIN: {' '.join(parts)}"
+    cc = b.get("country_code", "")
+    flag = COUNTRY_FLAGS.get(cc, "\U0001f310")
+    country_str = f"\U0001f30d Country: {flag} {b.get('country', '')}" if b.get("country") else ""
+    return bin_str, country_str
+# ─── End BIN Lookup ──────────────────────────────────────────────────
 
 def emit_summary_line(card: dict, code_display: str, amount_display: str, elapsed_seconds: float = None, site_display: str = None):
     try:
@@ -1837,28 +1900,37 @@ def emit_summary_line(card: dict, code_display: str, amount_display: str, elapse
         except Exception:
             pass
         try:
-            if prefix.startswith("💎"):
-                bi = _lookup_bin(pan)
-                if bi:
-                    parts = [bi.get("bin", "")]
-                    if bi.get("scheme"): parts.append(f"[{bi['scheme']}]")
-                    if bi.get("type"):   parts.append(bi["type"])
-                    if bi.get("tier"):   parts.append(f"({bi['tier']})")
-                    if bi.get("bank"):   parts.append(f"- {bi['bank']}")
-                    line = f"{line}\n🎫 BIN: {' '.join(parts)}"
-                    if bi.get("country"):
-                        line = f"{line}\n🌍 Country: {bi.get('flag','🌐')} {bi['country']}"
-        except Exception:
-            pass
-        try:
             print(line, file=sys.__stdout__)
         except Exception:
             print(line)
 
         try:
             if prefix.startswith("💎"):
+                # Only lookup BIN on charged cards to save API requests
+                try:
+                    bin_str, country_str = get_bin_line(pan)
+                    if bin_str:
+                        try:
+                            print(bin_str, file=sys.__stdout__)
+                        except Exception:
+                            print(bin_str)
+                    if country_str:
+                        try:
+                            print(country_str, file=sys.__stdout__)
+                        except Exception:
+                            print(country_str)
+                except Exception:
+                    pass
                 with open("approved.txt", "a", encoding="utf-8") as f:
                     f.write(line + "\n")
+                    try:
+                        bin_str, country_str = get_bin_line(pan)
+                        if bin_str:
+                            f.write(bin_str + "\n")
+                        if country_str:
+                            f.write(country_str + "\n")
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -1922,8 +1994,25 @@ def emit_summary_line(card: dict, code_display: str, amount_display: str, elapse
 
             try:
                 if prefix_fb.startswith("💎"):
+                    # Only lookup BIN on charged cards to save API requests
+                    try:
+                        bin_str_fb, country_str_fb = get_bin_line(pan_fb)
+                        if bin_str_fb:
+                            print(bin_str_fb, file=sys.__stdout__)
+                        if country_str_fb:
+                            print(country_str_fb, file=sys.__stdout__)
+                    except Exception:
+                        pass
                     with open("approved.txt", "a", encoding="utf-8") as f:
                         f.write(fallback + "\n")
+                        try:
+                            bin_str_fb, country_str_fb = get_bin_line(pan_fb)
+                            if bin_str_fb:
+                                f.write(bin_str_fb + "\n")
+                            if country_str_fb:
+                                f.write(country_str_fb + "\n")
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
