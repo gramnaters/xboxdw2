@@ -36,19 +36,18 @@ def get_firebase_token_and_uid(api_key, proxy=None):
     """
     Creates a new anonymous Firebase user and returns their token and uid.
     This will give a different uid every time it's called.
+    NOTE: Goes direct (no proxy) — Google blocks proxies on identitytoolkit.
+    Card data is not sent here so direct connection is safe.
     """
     url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={api_key}"
     payload = {"returnSecureToken": True}
-    
-    proxies = None
-    if proxy:
-        proxies = {"http": proxy, "https": proxy}
-    
+
+    # Always go direct — Google/Firebase blocks datacenter and residential proxies
     try:
-        response = requests.post(url, json=payload, proxies=proxies)
+        response = requests.post(url, json=payload, timeout=15)
         response.raise_for_status()
         data = response.json()
-        return data.get("idToken"), data.get("localId") # localId is the uid
+        return data.get("idToken"), data.get("localId")
     except requests.exceptions.RequestException as e:
         print(f"Error getting Firebase token: {e}")
         return None, None
