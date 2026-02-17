@@ -4,6 +4,13 @@ import time
 from typing import List, Dict, Optional
 import threading
 
+# BIN lookup for notification enrichment
+try:
+    from neww import lookup_bin, _country_flag
+    _HAS_BIN_LOOKUP = True
+except ImportError:
+    _HAS_BIN_LOOKUP = False
+
 UPLOADS_DIR = "uploads"
 
 def ensure_uploads_dir():
@@ -428,6 +435,29 @@ def result_notify_text(card: Dict, status: str, code_display: str, amount_displa
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
         f"💳 <b>Card:</b> <code>{pan}|{mm_str}|{yy_str}|{cvv}</code>"
     ]
+    
+    # BIN lookup – inject BIN and Country lines right after Card
+    if _HAS_BIN_LOOKUP and pan:
+        try:
+            b = lookup_bin(pan)
+            if b:
+                bin_parts = []
+                if b.get('brand'):
+                    bin_parts.append(b['brand'])
+                if b.get('type'):
+                    bin_parts.append(b['type'])
+                if b.get('level'):
+                    bin_parts.append(b['level'])
+                if b.get('bank'):
+                    bin_parts.append(b['bank'])
+                if bin_parts:
+                    parts.append("🏧 <b>BIN:</b> " + " – ".join(bin_parts))
+                cc = b.get('country_code', '')
+                flag = _country_flag(cc)
+                if b.get('country'):
+                    parts.append(f"🌍 <b>Country:</b> {flag} {b['country']}")
+        except Exception:
+            pass
     
     if status == "charged":
         parts.append('🔐 <b>Code:</b> <code>ProcessedReceipt</code>')
