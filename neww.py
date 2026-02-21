@@ -1793,6 +1793,23 @@ def lookup_bin(card_number: str) -> dict:
             r = requests.get(f"https://bins.antipublic.cc/bins/{bin6}", timeout=5, verify=False)
             if r.status_code == 200:
                 d = r.json()
+                # Get country flag directly from API or extract country_code from it
+                country_flag = d.get("country_flag", "")
+                country_code = d.get("country_code", "")
+                
+                # If no country_code but we have country_flag, try to extract it
+                # Country flags are composed of two regional indicator symbols
+                if not country_code and country_flag:
+                    try:
+                        # Extract country code from flag emoji
+                        # Flags are made of regional indicator symbols (0x1F1E6-0x1F1FF)
+                        # e.g., 🇺🇸 = U+1F1FA U+1F1F8 = "US"
+                        code_points = [ord(c) for c in country_flag if 0x1F1E6 <= ord(c) <= 0x1F1FF]
+                        if len(code_points) == 2:
+                            country_code = ''.join(chr(cp - 0x1F1E6 + ord('A')) for cp in code_points)
+                    except:
+                        pass
+                
                 result = {
                     "bin": bin6,
                     "brand": (d.get("brand") or "").upper(),
@@ -1800,7 +1817,8 @@ def lookup_bin(card_number: str) -> dict:
                     "level": (d.get("level") or "").upper(),
                     "bank": (d.get("bank") or "").strip(),
                     "country": (d.get("country_name") or "").upper(),
-                    "country_code": (d.get("country_code") or "").upper(),
+                    "country_code": country_code.upper() if country_code else "",
+                    "country_flag": country_flag,
                 }
                 _bin_cache[bin6] = result
                 return result
@@ -1825,8 +1843,13 @@ def get_bin_line(card_number: str) -> str:
     if b.get("bank"):
         parts.append(b["bank"])
     bin_str = f"\U0001f3e6 BIN: {' - '.join(parts)}" if parts else ""
-    cc = b.get("country_code", "")
-    flag = COUNTRY_FLAGS.get(cc, "\U0001f310")
+    
+    # Prefer country_flag from API, fallback to COUNTRY_FLAGS lookup
+    flag = b.get("country_flag", "")
+    if not flag:
+        cc = b.get("country_code", "")
+        flag = COUNTRY_FLAGS.get(cc, "\U0001f310")
+    
     country_str = f"\U0001f30d Country: {flag} {b.get('country', '')}" if b.get("country") else ""
     return bin_str, country_str
 # ─── End BIN Lookup ──────────────────────────────────────────────────
