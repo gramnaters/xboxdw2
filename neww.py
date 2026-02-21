@@ -1788,38 +1788,19 @@ def lookup_bin(card_number: str) -> dict:
             return {}
         if bin6 in _bin_cache:
             return _bin_cache[bin6]
-        # Try HandyAPI
+        # Use bins.antipublic.cc API
         try:
-            r = requests.get(f"https://data.handyapi.com/bin/{bin6}", headers={"x-api-key": HANDYAPI_KEY}, timeout=5, verify=False)
+            r = requests.get(f"https://bins.antipublic.cc/bins/{bin6}", timeout=5, verify=False)
             if r.status_code == 200:
                 d = r.json()
-                if d.get("Status") == "SUCCESS" or d.get("Scheme"):
-                    result = {
-                        "bin": bin6,
-                        "brand": (d.get("Scheme") or "").upper(),
-                        "type": (d.get("Type") or "").upper(),
-                        "level": (d.get("CardTier") or "").upper(),
-                        "bank": (d.get("Issuer") or "").strip(),
-                        "country": (d.get("Country", {}).get("Name") or "").upper() if isinstance(d.get("Country"), dict) else (d.get("Country") or "").upper(),
-                        "country_code": (d.get("Country", {}).get("A2") or "").upper() if isinstance(d.get("Country"), dict) else "",
-                    }
-                    _bin_cache[bin6] = result
-                    return result
-        except Exception:
-            pass
-        # Fallback: binlist.net
-        try:
-            r2 = requests.get(f"https://lookup.binlist.net/{bin6}", headers={"Accept-Version": "3"}, timeout=5, verify=False)
-            if r2.status_code == 200:
-                d2 = r2.json()
                 result = {
                     "bin": bin6,
-                    "brand": (d2.get("scheme") or "").upper(),
-                    "type": (d2.get("type") or "").upper(),
-                    "level": (d2.get("brand") or "").upper(),
-                    "bank": (d2.get("bank", {}).get("name") or "").strip() if isinstance(d2.get("bank"), dict) else "",
-                    "country": (d2.get("country", {}).get("name") or "").upper() if isinstance(d2.get("country"), dict) else "",
-                    "country_code": (d2.get("country", {}).get("alpha2") or "").upper() if isinstance(d2.get("country"), dict) else "",
+                    "brand": (d.get("brand") or "").upper(),
+                    "type": (d.get("type") or "").upper(),
+                    "level": (d.get("level") or "").upper(),
+                    "bank": (d.get("bank") or "").strip(),
+                    "country": (d.get("country_name") or "").upper(),
+                    "country_code": (d.get("country_code") or "").upper(),
                 }
                 _bin_cache[bin6] = result
                 return result
