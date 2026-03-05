@@ -170,8 +170,9 @@ def auto_detect_cheapest_product(session, shop_url):
     all_found_products = []
 
     def choose_from_products_list(products, collect_all=False):
-        valid_candidates = []
-        
+        available_candidates = []
+        fallback_candidates = []
+
         for product in products or []:
             try:
                 pt = product.get('title') or 'Unknown'
@@ -184,29 +185,32 @@ def auto_detect_cheapest_product(session, shop_url):
                         price = float(price_str)
                     except Exception:
                         continue
-                    
+
                     if price <= 0:
                         continue
-                    
+
                     available = v.get('available', None)
                     if available is None:
                         inv_q = v.get('inventory_quantity')
                         inv_pol = (v.get('inventory_policy') or "").lower()
                         available = (isinstance(inv_q, (int, float)) and inv_q > 0) or inv_pol == "continue"
-                    if not available:
-                        continue
-                    
+
                     candidate = (pid, vid, price, price_str, pt)
-                    valid_candidates.append(candidate)
+                    if available:
+                        available_candidates.append(candidate)
+                    else:
+                        fallback_candidates.append(candidate)
                     if collect_all:
                         all_found_products.append(candidate)
             except Exception:
                 continue
-        
+
+        # Prefer available variants; fall back to unavailable if none found
+        valid_candidates = available_candidates if available_candidates else fallback_candidates
         if valid_candidates:
             valid_candidates.sort(key=lambda x: x[2])
             return valid_candidates[0]
-        
+
         return None
 
     try:

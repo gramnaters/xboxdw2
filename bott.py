@@ -5498,48 +5498,6 @@ async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
         batch = result_messages[i:i+batch_size]
         await update.message.reply_text("\n".join(batch))
     
-    # Summary message (no longer referencing broken_sites)
-        #     sites_file = "working_sites.txt"
-        #     removed_count = 0
-        #     
-        #     # Read current sites
-        #     current_sites = checkout.read_sites_from_file(sites_file)
-        #     if current_sites:
-        #         # Filter out broken sites
-        #         updated_sites = [s for s in current_sites if s not in broken_sites]
-        #         removed_count = len(current_sites) - len(updated_sites)
-        #         
-        #         if removed_count > 0:
-        #             # Write back to file
-        #             with open(sites_file, "w", encoding="utf-8") as f:
-        #                 for site in updated_sites:
-        #                     f.write(f"{site}\n")
-        #             
-        #             # Clear the sites cache to force reload
-        #             global SITES_CACHE, SITES_CACHE_MTIME
-        #             with SITES_CACHE_LOCK:
-        #                 SITES_CACHE = None
-        #                 SITES_CACHE_MTIME = 0
-        #             
-        #             broken_list = "\n".join([f"  • {site}" for site in broken_sites])
-        #             await update.message.reply_text(
-        #                 f"⚠️ <b>Removed {removed_count} Broken Site(s)</b>\n\n"
-        #                 f"These sites failed with 'Could not auto-detect products':\n"
-        #                 f"{broken_list}\n\n"
-        #                 f"Remaining sites: {len(updated_sites)}",
-        #                 parse_mode=ParseMode.HTML
-        #             )
-        # except Exception as e:
-        #     logger.error(f"Failed to remove broken sites: {e}")
-        broken_list = "\n".join([f"  • {site}" for site in broken_sites])
-        await update.message.reply_text(
-            f"⚠️ <b>Found {len(broken_sites)} Broken Site(s) (Removal Disabled)</b>\n\n"
-            f"These sites failed with 'Could not auto-detect products':\n"
-            f"{broken_list}\n\n"
-            f"<i>Note: Site removal is disabled. Sites remain in working_sites.txt.</i>",
-            parse_mode=ParseMode.HTML
-        )
-    
     if added_count > 0:
         try:
             msg = f"Added {added_count} Proxy" if added_count == 1 else f"Added {added_count} Proxies"
