@@ -663,6 +663,26 @@ async def ensure_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> b
         return False
 
 # ====== Proxy masking and user lookup helpers ======
+        if self.captcha > 0 and self.captcha_cards:
+            try:
+                import io as _io
+                _lines = []
+                for _c in self.captcha_cards:
+                    try:
+                        _pan=str(_c.get('number',''))
+                        _mm=int(_c.get('month',0)or 0)
+                        _yy=int(_c.get('year',0)or 0)
+                        _cvv=str(_c.get('verification_value',''))
+                        _lines.append(f'{_pan}|{_mm:02d}|{_yy%100:02d}|{_cvv}')
+                    except Exception:
+                        pass
+                if _lines:
+                    _fc='\n'.join(_lines).encode('utf-8')
+                    _fn=f'captcha_required_{self.user_id}_{self.batch_id}.txt'
+                    await update.effective_chat.send_document(document=_io.BytesIO(_fc),filename=_fn,caption=f'⚠️ {self.captcha} cards with CAPTCHA_REQUIRED')
+            except Exception as _e:
+                logger.error(f'captcha file error: {_e}')
+
 def mask_proxy_password(proxy_url: str) -> str:
     """Mask the password in a proxy URL, leaving other parts visible."""
     try:
@@ -984,6 +1004,8 @@ class BatchRunner:
         self.approved = 0
         self.declined = 0
         self.charged = 0
+        self.captcha = 0
+        self.captcha_cards = []
         self.start_ts = time.time()
         self.lock = asyncio.Lock()
         self.batch_id = batch_id
@@ -1024,7 +1046,7 @@ class BatchRunner:
     async def run(self, update: Update, context: ContextTypes.DEFAULT_TYPE, title: str):
         # Send initial progress message
         progress_msg = await update.effective_chat.send_message(
-            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
             reply_markup=self.stop_keyboard(),
@@ -1060,6 +1082,9 @@ class BatchRunner:
                     self.approved += 1
                 elif status == "declined":
                     self.declined += 1
+                elif status == "captcha":
+                    self.captcha += 1
+                    self.captcha_cards.append(card)
                 else:
                     # Count "unknown" status as declined to ensure accurate counting
                     self.declined += 1
@@ -1068,7 +1093,7 @@ class BatchRunner:
                     await context.bot.edit_message_text(
                         chat_id=progress_msg.chat_id,
                         message_id=progress_msg.message_id,
-                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                         parse_mode=ParseMode.HTML,
                         disable_web_page_preview=True,
                     )
@@ -1089,8 +1114,11 @@ class BatchRunner:
 
         # Final summary
         await update.effective_chat.send_message(
-            text=f"Completed: {self.processed}/{self.total}\n"
-                 f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}",
+            text=(
+                f"Completed: {self.processed}/{self.total}\n"
+                f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
+                + (f"\nCAPTCHA: {self.captcha}" if self.captcha > 0 else "")
+            ),
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
@@ -1098,7 +1126,7 @@ class BatchRunner:
     async def run_with_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE, title: str):
         try:
             progress_msg = await update.effective_chat.send_message(
-                text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
                 reply_markup=self.stop_keyboard(),
@@ -1112,7 +1140,7 @@ class BatchRunner:
                     await asyncio.sleep(retry_after)
                     # Retry sending the message after waiting
                     progress_msg = await update.effective_chat.send_message(
-                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                         parse_mode=ParseMode.HTML,
                         disable_web_page_preview=True,
                         reply_markup=self.stop_keyboard(),
@@ -1272,6 +1300,9 @@ class BatchRunner:
                     self.approved += 1
                 elif status == "declined":
                     self.declined += 1
+                elif status == "captcha":
+                    self.captcha += 1
+                    self.captcha_cards.append(card)
                 else:
                     # Count "unknown" status as declined to ensure accurate counting
                     self.declined += 1
@@ -1412,7 +1443,7 @@ class BatchRunner:
                         await context.bot.edit_message_text(
                             chat_id=progress_msg.chat_id,
                             message_id=progress_msg.message_id,
-                            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                             parse_mode=ParseMode.HTML,
                             disable_web_page_preview=True,
                             reply_markup=self.stop_keyboard(),
@@ -1430,7 +1461,7 @@ class BatchRunner:
                                     await context.bot.edit_message_text(
                                         chat_id=progress_msg.chat_id,
                                         message_id=progress_msg.message_id,
-                                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                                         parse_mode=ParseMode.HTML,
                                         disable_web_page_preview=True,
                                         reply_markup=self.stop_keyboard(),
@@ -1517,11 +1548,15 @@ class BatchRunner:
             cancelled = False
 
         final_text = (
-            f"Stopped: {self.processed}/{self.total}\n"
-            f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
-            if cancelled else
-            f"Completed: {self.processed}/{self.total}\n"
-            f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
+            (
+                f"Stopped: {self.processed}/{self.total}\n"
+                f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
+                + (f"\nCAPTCHA: {self.captcha}" if self.captcha > 0 else "")
+            ) if cancelled else (
+                f"Completed: {self.processed}/{self.total}\n"
+                f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
+                + (f"\nCAPTCHA: {self.captcha}" if self.captcha > 0 else "")
+            )
         )
         try:
             await update.effective_chat.send_message(
@@ -1628,6 +1663,9 @@ class BatchRunner:
                     self.approved += 1
                 elif status == "declined":
                     self.declined += 1
+                elif status == "captcha":
+                    self.captcha += 1
+                    self.captcha_cards.append(card)
                 else:
                     # Count "unknown" status as declined to ensure accurate counting
                     self.declined += 1
@@ -1766,7 +1804,7 @@ class BatchRunner:
                     await context.bot.edit_message_text(
                         chat_id=progress_msg.chat_id,
                         message_id=progress_msg.message_id,
-                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                         parse_mode=ParseMode.HTML,
                         disable_web_page_preview=True,
                         reply_markup=self.stop_keyboard(),
@@ -1783,7 +1821,7 @@ class BatchRunner:
                                 await context.bot.edit_message_text(
                                     chat_id=progress_msg.chat_id,
                                     message_id=progress_msg.message_id,
-                                    text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                                    text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                                     parse_mode=ParseMode.HTML,
                                     disable_web_page_preview=True,
                                     reply_markup=self.stop_keyboard(),
@@ -1870,11 +1908,15 @@ class BatchRunner:
             cancelled = False
 
         final_text = (
-            f"Stopped: {self.processed}/{self.total}\n"
-            f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
-            if cancelled else
-            f"Completed: {self.processed}/{self.total}\n"
-            f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
+            (
+                f"Stopped: {self.processed}/{self.total}\n"
+                f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
+                + (f"\nCAPTCHA: {self.captcha}" if self.captcha > 0 else "")
+            ) if cancelled else (
+                f"Completed: {self.processed}/{self.total}\n"
+                f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
+                + (f"\nCAPTCHA: {self.captcha}" if self.captcha > 0 else "")
+            )
         )
         try:
             await update.effective_chat.send_message(
