@@ -3,7 +3,7 @@ import io
 import time
 import random
 import asyncio
-import aiohttp  # Added for proxy testing
+import requests  # For proxy testing
 import logging
 from datetime import datetime
 
@@ -2523,30 +2523,42 @@ async def cmd_sh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Started.")
 
 
-# ====== Proxy Testing Function (ipwhois.io method) ======
-async def test_proxy_with_ipwhois(proxy_url: str) -> tuple:
+# ====== Proxy Testing Function (using requests library) ======
+def test_proxy_sync(proxy_url: str) -> tuple:
     """
-    Test proxy using ipwhois.io API (same method as working bots)
+    Test proxy using requests library and ipwhois.io API
     Returns: (is_working, location_info)
     """
     try:
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(
-                "https://ipwhois.app/json/",
-                proxy=proxy_url,
-                ssl=False
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    ip = data.get("ip", "Unknown")
-                    country = data.get("country", "Unknown")
-                    city = data.get("city", "Unknown")
-                    location = f"{city}, {country}" if city and city != "Unknown" else country
-                    return True, f"IP: {ip} ({location})"
-                else:
-                    return False, f"Status: {response.status}"
-    except asyncio.TimeoutError:
+        # Disable SSL warnings
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # Format proxy for requests
+        proxies = {
+            "http": proxy_url,
+            "https": proxy_url
+        }
+        
+        # Test against ipwhois.io
+        response = requests.get(
+            "https://ipwhois.app/json/",
+            proxies=proxies,
+            timeout=15,
+            verify=False
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            ip = data.get("ip", "Unknown")
+            country = data.get("country", "Unknown")
+            city = data.get("city", "Unknown")
+            location = f"{city}, {country}" if city and city != "Unknown" else country
+            return True, f"IP: {ip} ({location})"
+        else:
+            return False, f"Status: {response.status_code}"
+            
+    except requests.exceptions.Timeout:
         return False, "Timeout"
     except Exception as e:
         error_msg = str(e)[:50]
@@ -2671,8 +2683,13 @@ async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
         
-        # Test proxy using ipwhois.io API
-        proxy_working, location_info = await test_proxy_with_ipwhois(p)
+        # Test proxy using requests (synchronous, run in executor)
+        loop = asyncio.get_running_loop()
+        proxy_working, location_info = await loop.run_in_executor(
+            None,
+            test_proxy_sync,
+            p
+        )
         
         # Format result message
         masked_proxy = _mask_proxy_display(p)
