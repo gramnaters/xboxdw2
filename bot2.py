@@ -663,25 +663,6 @@ async def ensure_access(update: Update, context: ContextTypes.DEFAULT_TYPE) -> b
         return False
 
 # ====== Proxy masking and user lookup helpers ======
-        if self.captcha > 0 and self.captcha_cards:
-            try:
-                import io as _io
-                _lines = []
-                for _c in self.captcha_cards:
-                    try:
-                        _pan=str(_c.get('number',''))
-                        _mm=int(_c.get('month',0)or 0)
-                        _yy=int(_c.get('year',0)or 0)
-                        _cvv=str(_c.get('verification_value',''))
-                        _lines.append(f'{_pan}|{_mm:02d}|{_yy%100:02d}|{_cvv}')
-                    except Exception:
-                        pass
-                if _lines:
-                    _fc='\n'.join(_lines).encode('utf-8')
-                    _fn=f'captcha_required_{self.user_id}_{self.batch_id}.txt'
-                    await update.effective_chat.send_document(document=_io.BytesIO(_fc),filename=_fn,caption=f'⚠️ {self.captcha} cards with CAPTCHA_REQUIRED')
-            except Exception as _e:
-                logger.error(f'captcha file error: {_e}')
 
 def mask_proxy_password(proxy_url: str) -> str:
     """Mask the password in a proxy URL, leaving other parts visible."""
@@ -1947,6 +1928,31 @@ class BatchRunner:
             except Exception:
                 logger.error(f"Failed to send final message after retry: {e}")
 
+
+        # Send captcha cards as .txt file
+        if self.captcha > 0 and self.captcha_cards:
+            try:
+                import io as _io
+                _lines = []
+                for _c in self.captcha_cards:
+                    try:
+                        _pan = str(_c.get('number', ''))
+                        _mm  = int(_c.get('month', 0) or 0)
+                        _yy  = int(_c.get('year', 0) or 0)
+                        _cvv = str(_c.get('verification_value', ''))
+                        _lines.append(f'{_pan}|{_mm:02d}|{_yy%100:02d}|{_cvv}')
+                    except Exception:
+                        pass
+                if _lines:
+                    _fc = '\n'.join(_lines).encode('utf-8')
+                    _fn = f'captcha_required_{self.user_id}_{self.batch_id}.txt'
+                    await update.effective_chat.send_document(
+                        document=_io.BytesIO(_fc),
+                        filename=_fn,
+                        caption=f'⚠️ {self.captcha} cards with CAPTCHA_REQUIRED'
+                    )
+            except Exception as _e:
+                logger.error(f'captcha file error: {_e}')
 
 # ====== Proxy masking and user lookup helpers ======
 def mask_proxy_password(proxy_url: str) -> str:
