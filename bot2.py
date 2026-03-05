@@ -3,6 +3,7 @@ import io
 import time
 import random
 import asyncio
+import aiohttp  # Added for proxy testing
 import logging
 from datetime import datetime
 
@@ -2522,6 +2523,36 @@ async def cmd_sh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Started.")
 
 
+# ====== Proxy Testing Function (ipwhois.io method) ======
+async def test_proxy_with_ipwhois(proxy_url: str) -> tuple:
+    """
+    Test proxy using ipwhois.io API (same method as working bots)
+    Returns: (is_working, location_info)
+    """
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(
+                "https://ipwhois.app/json/",
+                proxy=proxy_url,
+                ssl=False
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    ip = data.get("ip", "Unknown")
+                    country = data.get("country", "Unknown")
+                    city = data.get("city", "Unknown")
+                    location = f"{city}, {country}" if city and city != "Unknown" else country
+                    return True, f"IP: {ip} ({location})"
+                else:
+                    return False, f"Status: {response.status}"
+    except asyncio.TimeoutError:
+        return False, "Timeout"
+    except Exception as e:
+        error_msg = str(e)[:50]
+        return False, f"Error: {error_msg}"
+
+
 async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Enforce access policy and channel membership
     if not await ensure_access(update, context):
@@ -2607,35 +2638,7 @@ async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("All provided proxies were invalid format. Expected host:port or ip:port:user:pass (http by default), or user:pass@host:port.")
         return
 
-    # Use multiple test cards for better validation
-    test_cards = [
-        {
-            "number": "4906388577508357",
-            "month": "11",
-            "year": "28",
-            "verification_value": "824"
-        },
-        {
-            "number": "4532915710095558",
-            "month": "12",
-            "year": "27",
-            "verification_value": "123"
-        }
-    ]
-
-    # Load sites
-    sites = checkout.read_sites_from_file("working_sites.txt")
-    if not sites:
-        await update.message.reply_text("No sites found in working_sites.txt.")
-        return
-
-    # Take a sample of sites for testing if there are too many
-    test_sites = list(sites)
-    if len(test_sites) > 3:
-        test_sites = random.sample(test_sites, 3)
-
-    # Validate each proxy; consider valid if it works with any card on any site
-
+    # Get user info for saving proxies
     user = update.effective_user
     display_name = (user.full_name or "").strip()
     if not display_name:
@@ -2650,46 +2653,64 @@ async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     added_count = 0
     duplicate_count = 0
 
-    loop = asyncio.get_running_loop()
+    # Send initial progress message
+    progress_msg = await update.message.reply_text(
+        f"Testing {len(normalized_list)} proxy(ies) via ipwhois.io...\n"
+        "Please wait..."
+    )
+
     # Process all proxies
     total_proxies = len(normalized_list)
     for idx, p in enumerate(normalized_list, 1):
-        await update.message.reply_text(f"🔄 Testing proxy {idx}/{total_proxies}: {_mask_proxy_display(p)}")
+        try:
+            # Update progress
+            await progress_msg.edit_text(
+                f"Testing {idx}/{total_proxies} proxy(ies) via ipwhois.io...\n"
+                "Please wait..."
+            )
+        except:
+            pass
         
-        proxy_working = False
-        test_results = []
+        # Test proxy using ipwhois.io API
+        proxy_working, location_info = await test_proxy_with_ipwhois(p)
         
-        # Test proxy against sites
-        for site in test_sites:
-            try:
-                # Try with first test card
-                status, code_display, amount_display, site_label, used_proxy_url, site_url = await loop.run_in_executor(
-                    GLOBAL_EXECUTOR,
-                    check_single_card,
-                    test_cards[0],
-                    [site],  # Test one site at a time
-                    {"http": p, "https": p}
-                )
-                if status != "unknown":
-                    proxy_working = True
-                    test_results.append(f"✅ Works on {site_label}")
-            except Exception:
-                continue
-
+        # Format result message
+        masked_proxy = _mask_proxy_display(p)
+        
         if proxy_working:
             if p in existing_set:
                 duplicate_count += 1
-                await update.message.reply_text(f"✅ Proxy {_mask_proxy_display(p)} - Already Added\n" + "\n".join(test_results))
+                await update.message.reply_text(
+                    f"{idx}. ✅ {masked_proxy}\n"
+                    f"- {location_info} (already added)"
+                )
             else:
                 try:
                     await add_user_proxy(user.id, display_name, user.username, p)
                     existing_set.add(p)
                     added_count += 1
-                    await update.message.reply_text(f"✅ Proxy {_mask_proxy_display(p)} - Added\n" + "\n".join(test_results))
+                    await update.message.reply_text(
+                        f"{idx}. ✅ {masked_proxy}\n"
+                        f"- {location_info}"
+                    )
                 except Exception:
-                    pass
+                    await update.message.reply_text(
+                        f"{idx}. ❌ {masked_proxy}\n"
+                        f"- Failed to save"
+                    )
         else:
-            await update.message.reply_text(f"❌ Proxy {_mask_proxy_display(p)} - Failed all tests")    # Build summary response
+            await update.message.reply_text(
+                f"{idx}. ❌ {masked_proxy}\n"
+                f"- {location_info}"
+            )
+    
+    # Delete progress message
+    try:
+        await progress_msg.delete()
+    except:
+        pass
+    
+    # Build summary response
     if added_count > 0:
         try:
             msg = f"Added {added_count} Proxy" if added_count == 1 else f"Added {added_count} Proxies"
