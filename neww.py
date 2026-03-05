@@ -49,12 +49,20 @@ def create_session(shop_url, proxies=None):
     session = requests.Session()
     session.trust_env = False if proxies else True
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         'Accept': 'application/json',
-        'Accept-Language': 'en-US',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Content-Type': 'application/json',
         'Origin': shop_url,
         'Referer': f'{shop_url}/',
+        'sec-ch-ua': '"Chromium";v="131", "Not_A Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-site': 'same-origin',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-dest': 'empty',
+        'DNT': '1',
     })
     if proxies:
         try:
@@ -365,10 +373,10 @@ def step2_tokenize_card(session, checkout_token):
             "Sec-Fetch-Site": "cross-site",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",
-            "Sec-CH-UA": '"Chromium";v="129", "Google Chrome";v="129", "Not=A?Brand";v="99"',
+            "Sec-CH-UA": '"Chromium";v="131", "Not_A Brand";v="24"',
             "Sec-CH-UA-Mobile": "?0",
             "Sec-CH-UA-Platform": '"Windows"',
-            "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129 Safari/537.36"),
+            "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
         }
 
         try:
@@ -2676,12 +2684,12 @@ def step2_tokenize_card_ctx(session, checkout_token, shop_url, card_data):
             "Sec-Fetch-Site": "cross-site",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Dest": "empty",
-            "Sec-CH-UA": '"Chromium";v="129", "Google Chrome";v="129", "Not=A?Brand";v="99"',
+            "Sec-CH-UA": '"Chromium";v="131", "Not_A Brand";v="24"',
             "Sec-CH-UA-Mobile": "?0",
             "Sec-CH-UA-Platform": '"Windows"',
             "DNT": "1",
             "Connection": "keep-alive",
-            "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"),
+            "User-Agent": session.headers.get("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
         }
 
         try:
