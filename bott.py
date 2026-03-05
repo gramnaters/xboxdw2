@@ -1030,6 +1030,11 @@ def check_single_card(card: Dict, sites: List[str], proxies_override: Optional[D
                 except Exception:
                     pass
                 
+                # Fresh identity for every card attempt
+                try:
+                    checkout.set_thread_identity()
+                except Exception:
+                    pass
                 try:
                     checkout_token, session_token, cookies = checkout.step1_add_to_cart_ctx(session, shop_url, variant_id, _429_retry_count=_429_retry_count)
                 except Exception as step1_exc:
@@ -1291,7 +1296,6 @@ def check_single_card(card: Dict, sites: List[str], proxies_override: Optional[D
                     "DELIVERY_NO_DELIVERY_STRATEGY_AVAILABLE",
                     "PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT",
                     "REQUIRED_ARTIFACTS_UNAVAILABLE",
-                    "CAPTCHA_METADATA_MISSING",
                     "PAYMENTS_METHOD",
                     "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED",
                     "PAYMENTS_PAYMENT_FLEXIBILITY_TERMS_ID_MISMATCH",
