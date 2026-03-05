@@ -875,6 +875,10 @@ def check_single_card(card: Dict, sites: List[str], proxies_override: Optional[D
             if not receipt_id:
                 # Handle site-level submit errors by switching to next site
                 submit_upper = (str(submit_code) if submit_code is not None else "").upper()
+                # CAPTCHA: return immediately so BatchRunner tracks it
+                if "CAPTCHA_METADATA_MISSING" in submit_upper or "CAPTCHA" in submit_upper:
+                    return "captcha", '"code": "CAPTCHA_REQUIRED"', _amount_display(), site_label, used_proxy_url, shop_url, None
+
                 site_level_submit_errors = (
                     "MERCHANDISE_OUT_OF_STOCK",
                     "DELIVERY_NO_DELIVERY_STRATEGY_AVAILABLE",
