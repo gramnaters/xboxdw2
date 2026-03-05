@@ -3,6 +3,7 @@ import io
 import time
 import random
 import asyncio
+import requests  # For proxy testing
 import logging
 import re
 from datetime import datetime
@@ -5258,6 +5259,35 @@ async def cmd_sc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=None
     )
 
+# ====== Proxy Testing Function (ipwhois.io) ======
+def test_proxy_ipwhois(proxy_url: str) -> tuple:
+    """Test proxy using ipwhois.io API. Returns: (is_working, location_info)"""
+    try:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        proxies = {"http": proxy_url, "https": proxy_url}
+        response = requests.get(
+            "https://ipwhois.app/json/",
+            proxies=proxies,
+            timeout=15,
+            verify=False
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            ip = data.get("ip", "Unknown")
+            country = data.get("country", "Unknown")
+            city = data.get("city", "Unknown")
+            location = f"{city}, {country}" if city and city != "Unknown" else country
+            return True, f"IP: {ip} ({location})"
+        else:
+            return False, f"Status: {response.status_code}"
+    except requests.exceptions.Timeout:
+        return False, "Timeout"
+    except Exception as e:
+        return False, f"Error: {str(e)[:50]}"
+
 async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await ensure_access(update, context):
         return
@@ -5393,189 +5423,40 @@ async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     total_proxies = len(normalized_list)
     
-    testing_msg = await update.message.reply_text(f"🔄 Testing {total_proxies} proxy(ies) in parallel...\n\nPlease wait...")
+    testing_msg = await update.message.reply_text(f"Testing {total_proxies} proxy(ies) via ipwhois.io...\n\nPlease wait...")
     
     loop = asyncio.get_running_loop()
     
-    # Increased semaphore for faster parallel testing (100 concurrent tests)
-    semaphore = asyncio.Semaphore(100)
     
-    # Track sites that consistently fail with "auto-detect" errors
-    broken_sites = set()
-    
-    async def test_single_proxy(p, idx):
-        async with semaphore:
-            proxy_working = False
-            
-            # Test up to 3 sites sequentially
-            max_sites_to_test = min(3, len(test_sites))
-            if max_sites_to_test < 1:
-                return (p, False, idx)
-            
-            # Test each site sequentially until step 4 is reached
-            for site_idx in range(max_sites_to_test):
-                test_site = test_sites[site_idx]
-                site_number = site_idx + 1
-                
-                print(f"  [SETPR] Proxy {idx}: Testing site {site_number}/{max_sites_to_test} - {test_site[:50]}...")
-                
-                try:
-                    # Test this site with timeout for faster failure
-                    site_result = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            GLOBAL_EXECUTOR,
-                            check_single_card,
-                            test_cards[0],
-                            [test_site],
-                            {"http": p, "https": p},
-                            None
-                        ),
-                        timeout=50.0  # 50 second timeout per site test
-                    )
-                    
-                    if len(site_result) >= 6:
-                        status = site_result[0]
-                        code_display = site_result[1]
-                        
-                        # Check if proxy reached Step 4 (submission step)
-                        code_upper = (code_display or "").upper()
-                        msg_lower = (code_display or "").lower() if isinstance(code_display, str) else ""
-                        
-                        # Step 4 indicators - if any of these appear, proxy reached step 4
-                        step4_reached = False
-                        step4_reason = ""
-                        
-                        # Check 1: Status is success (approved/declined/charged means step 4+ completed)
-                        if status in ("approved", "declined", "charged"):
-                            step4_reached = True
-                            step4_reason = f"Step 4+ reached (status: {status})"
-                            print(f"  [SETPR] Site {site_number}: ✅ ACCEPTED - {step4_reason}")
-                        
-                        # Check 2: Explicit step 4 indicators in code (MUST CHECK FIRST before other checks)
-                        elif "CAPTCHA_METADATA_MISSING" in code_upper:
-                            step4_reached = True
-                            step4_reason = "Step 4 reached (CAPTCHA_METADATA_MISSING)"
-                            print(f"  [SETPR] Site {site_number}: ✅ ACCEPTED - {step4_reason}")
-                        elif any(indicator in code_upper for indicator in [
-                            "SUBMIT", "PAYMENTS_CREDIT_CARD_SESSION_ID",
-                            "HTTP_402", "HTTP_403", "SUBMITREJECTED", "SUBMITFAILED", 
-                            "STEP 4", "[4/5]", "STEP4"
-                        ]):
-                            step4_reached = True
-                            step4_reason = f"Step 4 reached (code: {code_display[:80]}...)"
-                            print(f"  [SETPR] Site {site_number}: ✅ ACCEPTED - {step4_reason}")
-                        
-                        # Check 3: Checkout/submit related errors (means got to step 4)
-                        elif "captcha_metadata_missing" in msg_lower:
-                            step4_reached = True
-                            step4_reason = "Step 4 reached (captcha_metadata_missing in message)"
-                            print(f"  [SETPR] Site {site_number}: ✅ ACCEPTED - {step4_reason}")
-                        elif any(sig in msg_lower for sig in [
-                            "submit", "receipt", "proposal", "queue_token", "shipping_handle",
-                            "step 4", "step4", "submitforcompletion",
-                            "payments_credit_card_session_id", "no receipt_id", "http_402", 
-                            "http_403", "submitrejected", "submitfailed", "phone required"
-                        ]):
-                            step4_reached = True
-                            step4_reason = f"Step 4 reached (error: {msg_lower[:80]}...)"
-                            print(f"  [SETPR] Site {site_number}: ✅ ACCEPTED - {step4_reason}")
-                        
-                        # Check 4: Site-level HTTP errors (means proxy worked, site blocked)
-                        elif any(sig in msg_lower for sig in [
-                            "402", "403", "payment required", "forbidden"
-                        ]):
-                            step4_reached = True
-                            step4_reason = f"Proxy reached site (HTTP error: {msg_lower[:80]}...)"
-                            print(f"  [SETPR] Site {site_number}: ✅ ACCEPTED - {step4_reason}")
-                        
-                        # If step 4 reached, proxy is working - ADD IT IMMEDIATELY and exit
-                        if step4_reached:
-                            proxy_working = True
-                            print(f"  [SETPR] Proxy {idx}: ✅ INSTANT ADD - Step 4 confirmed on site {site_number} ({step4_reason})")
-                            # Add proxy immediately and return
-                            try:
-                                if p not in existing_set:
-                                    await add_user_proxy(user.id, display_name, user.username, p)
-                                    existing_set.add(p)
-                                    print(f"  [SETPR] Proxy {idx}: ✅ Added to database immediately")
-                                else:
-                                    print(f"  [SETPR] Proxy {idx}: ✅ Already in database")
-                            except Exception as add_err:
-                                print(f"  [SETPR] Proxy {idx}: ⚠️ Failed to add to database: {add_err}")
-                            return (p, True, idx)  # Early exit - don't test more sites!
-                        
-                        # If no step 4 indicators, check for clear proxy death signals
-                        else:
-                            # Check for broken site (not proxy issue)
-                            if any(sig in msg_lower for sig in [
-                                "could not auto-detect", "auto-detect any products", "failed to detect products"
-                            ]):
-                                broken_sites.add(test_site)
-                                print(f"  [SETPR] Site {site_number}: ⚠️ INCONCLUSIVE - Site broken, trying next site...")
-                                continue  # Try next site
-                            
-                            # Check for clear proxy errors
-                            proxy_error_signals = [
-                                "unable to connect to proxy", "proxyerror", "max retries exceeded",
-                                "tunnel connection failed", "connect timeout", "connection refused",
-                                "connection timed out", "failed to establish", "target machine actively refused",
-                                "winerror 10061", "no connection could be made", "httpsconnectionpool",
-                                "httpconnectionpool", "connectionpool", "proxy server", "proxy connection",
-                                "consecutive attempts"
-                            ]
-                            
-                            is_429_proxy_error = "429" in msg_lower and ("proxy" in msg_lower or "tunnel" in msg_lower)
-                            
-                            if is_429_proxy_error or any(sig in msg_lower for sig in proxy_error_signals):
-                                print(f"  [SETPR] Site {site_number}: ❌ REJECTED - Proxy error detected")
-                                # Continue to next site (don't return yet, might work on another site)
-                                continue
-                            else:
-                                # Unknown result, try next site
-                                print(f"  [SETPR] Site {site_number}: ⚠️ INCONCLUSIVE - Unknown result, trying next site...")
-                                continue
-                
-                except asyncio.TimeoutError:
-                    # Timeout - proxy is likely dead or too slow
-                    print(f"  [SETPR] Site {site_number}: ❌ TIMEOUT - Proxy too slow (>50s)")
-                    continue  # Try next site
-                except Exception as e:
-                    # Check if exception is proxy-related
-                    err_msg = str(e).lower()
-                    if any(sig in err_msg for sig in [
-                        "unable to connect to proxy", "proxyerror", "proxy connection",
-                        "tunnel connection failed", "connection refused", "failed to establish",
-                        "target machine actively refused", "winerror 10061", "proxy server"
-                    ]):
-                        print(f"  [SETPR] Site {site_number}: ❌ REJECTED - Proxy exception: {str(e)[:80]}...")
-                        continue  # Try next site
-                    else:
-                        # Non-proxy exception, might be site issue
-                        print(f"  [SETPR] Site {site_number}: ⚠️ INCONCLUSIVE - Exception (not proxy): {str(e)[:80]}...")
-                        continue  # Try next site
-            
-            # If we tested all sites and none confirmed step 4, proxy is dead
-            print(f"  [SETPR] Proxy {idx}: ❌ DEAD - All {max_sites_to_test} sites rejected")
-            return (p, False, idx)
-    
-    tasks = [test_single_proxy(p, idx) for idx, p in enumerate(normalized_list, 1)]
-    results = await asyncio.gather(*tasks)
-    
+    # Simple sequential proxy testing using ipwhois.io API
     result_messages = []
-    for p, proxy_working, idx in results:
+    for idx, p in enumerate(normalized_list, 1):
+        try:
+            await testing_msg.edit_text(f"Testing {idx}/{total_proxies} proxy(ies) via ipwhois.io...\n\nPlease wait...")
+        except:
+            pass
+        
+        # Test proxy using ipwhois.io
+        proxy_working, location_info = await loop.run_in_executor(None, test_proxy_ipwhois, p)
+        
+        masked_proxy = _mask_proxy_display(p)
+        
         if proxy_working:
-            # Proxy was already added in test_single_proxy if step 4 was reached
-            # Check if it's a duplicate or was just added
             if p in existing_set:
                 duplicate_count += 1
-                result_messages.append(f"{idx}. ✅ {_mask_proxy_display(p)} - Already Added")
+                result_messages.append(f"{idx}. ✅ {masked_proxy} - {location_info} (already added)")
             else:
-                # Proxy was added during testing, just count it
-                added_count += 1
-                result_messages.append(f"{idx}. ✅ {_mask_proxy_display(p)} - Added")
+                try:
+                    await add_user_proxy(user.id, display_name, user.username, p)
+                    existing_set.add(p)
+                    added_count += 1
+                    result_messages.append(f"{idx}. ✅ {masked_proxy} - {location_info}")
+                except Exception:
+                    failed_count += 1
+                    result_messages.append(f"{idx}. ❌ {masked_proxy} - Failed to save")
         else:
             failed_count += 1
-            result_messages.append(f"{idx}. ❌ {_mask_proxy_display(p)} - Failed")
+            result_messages.append(f"{idx}. ❌ {masked_proxy} - {location_info}")
     
     try:
         await testing_msg.delete()
