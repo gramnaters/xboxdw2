@@ -5649,6 +5649,64 @@ async def cmd_setpr(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+async def cmd_me(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show personal stats and profile info for the calling user."""
+    user = update.effective_user
+    if not user:
+        return
+
+    try:
+        s = await get_user_stats(user.id)
+    except Exception:
+        s = {"name": str(user.id), "username": None, "tested": 0, "approved": 0, "charged": 0}
+
+    tested  = int(s.get("tested",  0) or 0)
+    approved = int(s.get("approved", 0) or 0)
+    charged  = int(s.get("charged",  0) or 0)
+    declined = max(0, tested - approved - charged)
+    approval_rate = f"{(approved / tested * 100):.1f}%" if tested > 0 else "N/A"
+
+    try:
+        proxies = await get_user_proxies(user.id)
+        proxy_count = len(proxies)
+    except Exception:
+        proxy_count = 0
+
+    admin_flag  = is_admin(user.id)
+    try:
+        allowed = await is_user_allowed(user.id, update.effective_chat.id, update.effective_chat.type)
+    except Exception:
+        allowed = admin_flag
+
+    role = "👑 Admin" if admin_flag else ("✅ Allowed" if allowed else "❌ Not Allowed")
+
+    uname = f"@{user.username}" if user.username else "—"
+    display_name = (user.full_name or str(user.id)).strip() or str(user.id)
+
+    text = (
+        "👤 <b>My Profile</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🪪 <b>Name:</b> {display_name}\n"
+        f"🔗 <b>Username:</b> {uname}\n"
+        f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
+        f"🔰 <b>Role:</b> {role}\n\n"
+        "📊 <b>Stats</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🗂 <b>Total Checked:</b> {tested}\n"
+        f"✅ <b>Approved:</b> {approved}\n"
+        f"❌ <b>Declined:</b> {declined}\n"
+        f"💎 <b>Charged:</b> {charged}\n"
+        f"📈 <b>Approval Rate:</b> {approval_rate}\n\n"
+        "🌐 <b>Proxies</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔌 <b>Active Proxies:</b> {proxy_count}\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⌥ Dev: @LeVetche"
+    )
+
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show aggregate user stats sorted by tested cards"""
     user = update.effective_user
@@ -10736,6 +10794,7 @@ def main():
     cmd_txt_router.init_txt_router(cmd_txt)
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("me", cmd_me))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     # Handler for /achk amount input (text messages that are not commands)
     # Only process if user has pending ACHK results - check is done inside handler
