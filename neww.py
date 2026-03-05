@@ -48,13 +48,26 @@ CARD_DATA = {
 def create_session(shop_url, proxies=None):
     session = requests.Session()
     session.trust_env = False if proxies else True
+    
+    # Anti-detection headers - mimics real Chrome browser to bypass CAPTCHA
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Accept-Language': 'en-US',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Content-Type': 'application/json',
         'Origin': shop_url,
         'Referer': f'{shop_url}/',
+        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Pragma': 'no-cache',
+        'Cache-Control': 'no-cache',
     })
     if proxies:
         try:
@@ -2029,6 +2042,32 @@ SHORT_SLEEP = 3.0
 MAX_WAIT_SECONDS = 8.0
 HTTP_TIMEOUT_SHORT = 15
 HTTP_TIMEOUT_MEDIUM = 20
+
+# Anti-CAPTCHA: Add random delays to mimic human behavior
+def add_human_delay(min_ms=100, max_ms=500):
+    """Add random delay to mimic human interaction and bypass bot detection"""
+    delay = random.uniform(min_ms / 1000.0, max_ms / 1000.0)
+    time.sleep(delay)
+    
+def get_anti_captcha_headers(shop_url, session):
+    """Get enhanced headers to bypass CAPTCHA detection"""
+    return {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Content-Type': 'application/json',
+        'Origin': shop_url,
+        'Referer': f'{shop_url}/checkouts/',
+        'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+    }
 STOP_AFTER_FIRST_RESULT = False
 SINGLE_PROXY_ATTEMPT = True
 
