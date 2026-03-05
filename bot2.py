@@ -781,6 +781,11 @@ def check_single_card(card: Dict, sites: List[str], proxies_override: Optional[D
             # Step 1: Add to cart (with retry on 429)
             _429_retry_count = 0
             while True:
+                # Fresh identity for every card attempt
+                try:
+                    checkout.set_thread_identity()
+                except Exception:
+                    pass
                 checkout_token, session_token, cookies = checkout.step1_add_to_cart_ctx(session, shop_url, variant_id, _429_retry_count=_429_retry_count)
                 
                 if checkout_token == "429_ROTATE":
@@ -865,7 +870,6 @@ def check_single_card(card: Dict, sites: List[str], proxies_override: Optional[D
                     "DELIVERY_NO_DELIVERY_STRATEGY_AVAILABLE",
                     "PAYMENTS_UNACCEPTABLE_PAYMENT_AMOUNT",
                     "REQUIRED_ARTIFACTS_UNAVAILABLE",
-                    "CAPTCHA_METADATA_MISSING",
                     "PAYMENTS_METHOD",
                     "DELIVERY_DELIVERY_LINE_DETAIL_CHANGED",
                 )
@@ -877,7 +881,7 @@ def check_single_card(card: Dict, sites: List[str], proxies_override: Optional[D
                                 del site_product_cache[shop_url]
                     except Exception:
                         pass
-                    # Permanently remove site from working_sites.txt when CAPTCHA or other site-level errors occur
+                    # Permanently remove site from working_sites.txt for site-level errors (not CAPTCHA - that's handled above)
                     try:
                         checkout.remove_site_from_working_sites(shop_url)
                     except Exception:
