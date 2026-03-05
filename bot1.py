@@ -328,18 +328,23 @@ def parse_cards_from_file(file_path: str) -> List[Dict]:
     except Exception:
         return []
 
-def progress_block(total: int, processed: int, approved: int, declined: int, charged: int, start_ts: float) -> str:
+def progress_block(total: int, processed: int, approved: int, declined: int, charged: int, start_ts: float, captcha: int = 0) -> str:
     elapsed = time.time() - (start_ts or time.time())
-    return (
-        f"🐢Total CC     : {total}\n"
-        f"💬 Progress     : {processed}/{total}\n"
-        f"✅  Approved    : {approved}\n"
-        f"❌Declined     :  {declined}\n"
-        f"💎 Charged     :  {charged}  \n"
-        f" Time Elapsed : {elapsed:.2f}s ⏱️\n"
-        f"━━━━━━━━━━━━━\n"
-        f"⌥ Dev: @LeVetche"
-    )
+    lines = [
+        f"🐢Total CC     : {total}",
+        f"💬 Progress     : {processed}/{total}",
+        f"✅  Approved    : {approved}",
+        f"❌Declined     :  {declined}",
+        f"💎 Charged     :  {charged}  ",
+    ]
+    if captcha > 0:
+        lines.append(f"⚠️ CAPTCHA     :  {captcha}")
+    lines += [
+        f" Time Elapsed : {elapsed:.2f}s ⏱️",
+        f"━━━━━━━━━━━━━",
+        f"⌥ Dev: @LeVetche",
+    ]
+    return "\n".join(lines)
 
 def format_site_label(url: str) -> str:
     import neww as checkout
